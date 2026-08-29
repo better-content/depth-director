@@ -23,6 +23,7 @@ import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -289,12 +290,17 @@ public final class DepthDirectorWorldGameTests {
 
         private BlockPos findSurfacePosition() {
             BlockPos template = helper.absolutePos(BlockPos.ZERO);
-            int y = level.getSeaLevel();
             for (int ring = 1; ring < 128; ring++) {
-                BlockPos candidate = new BlockPos(template.getX() - 1024 - ring * 128, y,
-                        template.getZ() - 1024 - ring * 128);
-                if (reserved.stream().allMatch(other -> horizontalDistanceSquared(candidate, other)
-                        >= 512.0 * 512.0)) return candidate;
+                int x = template.getX() - 1024 - ring * 128;
+                int z = template.getZ() - 1024 - ring * 128;
+                BlockPos horizontalCandidate = new BlockPos(x, level.getMinBuildHeight(), z);
+                if (reserved.stream().anyMatch(other -> horizontalDistanceSquared(horizontalCandidate, other)
+                        < 512.0 * 512.0)) continue;
+                forceFixtureChunks(level, horizontalCandidate, 1);
+                level.getChunk(x >> 4, z >> 4);
+                int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+                BlockPos candidate = new BlockPos(x, y, z);
+                return candidate;
             }
             throw new IllegalStateException("could not reserve an isolated surface sentinel");
         }
@@ -329,7 +335,10 @@ public final class DepthDirectorWorldGameTests {
 
                 if (firstPressureTick < 0 && track.pressure() > 0.0) {
                     firstPressureTick = now;
-                    double depth = DepthMath.depthFactor(y, level.getSeaLevel(), level.getMinBuildHeight());
+                    int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                            center.getX(), center.getZ());
+                    double depth = DepthMath.depthFactor(y,
+                            DepthMath.controlCeiling(surfaceY, 6), level.getMinBuildHeight());
                     double cadence = ProductionAccess.cadenceSeconds(ecology.cadenceMinimumSeconds(),
                             ecology.cadenceMaximumSeconds(), 0.5);
                     int updates = (int) Math.ceil(cadence / depth - 1.0e-9);
@@ -491,6 +500,9 @@ public final class DepthDirectorWorldGameTests {
                     }
                 }
             }
+        }
+        for (int y = roof; y < center.getY() + 40; y++) {
+            set(level, new BlockPos(center.getX(), y, center.getZ()), Blocks.DEEPSLATE.defaultBlockState());
         }
     }
 

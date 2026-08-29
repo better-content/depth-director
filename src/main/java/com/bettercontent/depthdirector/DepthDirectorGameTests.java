@@ -32,6 +32,31 @@ public final class DepthDirectorGameTests {
     private DepthDirectorGameTests() {}
 
     @GameTest(templateNamespace = DepthDirectorMod.MOD_ID, template = TEMPLATE, timeoutTicks = 100)
+    public static void directorBoundaryTracksLocalLeafIgnoringSurface(GameTestHelper helper) {
+        BlockPos column = helper.absolutePos(new BlockPos(4, 1, 4));
+        int originalSurface = helper.getLevel().getHeight(
+                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                column.getX(), column.getZ());
+        BlockPos raisedSurfaceBlock = new BlockPos(column.getX(), originalSurface + 12, column.getZ());
+        helper.getLevel().setBlockAndUpdate(raisedSurfaceBlock, Blocks.STONE.defaultBlockState());
+        helper.runAfterDelay(1, () -> {
+            int surface = helper.getLevel().getHeight(
+                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                    column.getX(), column.getZ());
+            int ceiling = DirectorRuntime.controlCeiling(helper.getLevel(), column, 6);
+            helper.assertTrue(surface == raisedSurfaceBlock.getY() + 1,
+                    "leaf-ignoring heightmap must follow the raised local surface");
+            helper.assertTrue(ceiling == surface - 6,
+                    "Director ceiling must reserve the surface and six blocks below it");
+            helper.assertTrue(!DepthMath.isControlled(ceiling, ceiling),
+                    "the inclusive reserved band must remain outside Director control");
+            helper.assertTrue(DepthMath.isControlled(ceiling - 1, ceiling),
+                    "Director control must begin one block below the reserved band");
+            helper.succeed();
+        });
+    }
+
+    @GameTest(templateNamespace = DepthDirectorMod.MOD_ID, template = TEMPLATE, timeoutTicks = 100)
     public static void ecologiesLoadAndHiddenDarkReachableGeometryIsAccepted(GameTestHelper helper) {
         buildFixture(helper);
         ServerPlayer player = player(helper, PLAYER);

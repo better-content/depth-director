@@ -1,8 +1,10 @@
 # Depth Director
 
 A small server-authoritative underground encounter director for Better Content. It
-groups nearby players, builds pressure from time and depth, and sends bounded packets
-from unseen, dark, reachable cave routes. Overworld encounter ecologies are reloadable
+groups nearby players, builds pressure from time and depth below the local terrain surface,
+and sends bounded packets from unseen, dark, reachable cave routes. The surface boundary
+uses the leaf-ignoring motion-blocking heightmap and reserves the configured shallow band
+before Director control begins. Overworld encounter ecologies are reloadable
 datapack JSON; other natural dimensions use their native hostile palette. The authored
 Overworld territories are selected only from deterministic world-seed noise and player
 position. They never inspect or target Minecraft biome IDs.
@@ -26,7 +28,7 @@ packet caps remain absolute so every packet preserves its intended composition.
 Forge GameTest world with the pack's exact Born in Chaos, Goety, Deeper and Darker,
 Quark, Tinkers' Construct, and Enderman Overhaul catalogue dependencies. It first
 resolves and EVENT-spawns every roster entry, then registers 15 real dummy players in
-pure natural-noise territories at Y -56, 0, and 32, plus a sea-level sentinel. The
+pure natural-noise territories at Y -56, 0, and 32, plus a local-surface sentinel. The
 production Director must build pressure for its full unmodified cadence, warn, find a
 real hidden route, and spawn only the territory's allocated mobs with provenance and
 targeting intact. All cohorts run concurrently and cover about 61 minutes of in-game

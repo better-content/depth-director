@@ -12,6 +12,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.registries.ForgeRegistries;
 
@@ -110,7 +111,7 @@ final class DirectorRuntime {
             if (participantEncounter.containsKey(player.getUUID())) continue;
             DirectorSavedData.Track track = data.track(player.getUUID());
             ServerLevel level = player.serverLevel();
-            if (player.getY() >= level.getSeaLevel()) {
+            if (!DepthMath.isControlled(player.blockPosition().getY(), controlCeiling(level, player.blockPosition()))) {
                 track.pressure(DirectorPolicy.advancePressure(track.pressure(), 0.0, 1.0,
                         false, false, false, false, false, true,
                         DirectorConfig.SURFACE_DECAY_SECONDS.get()));
@@ -342,12 +343,24 @@ final class DirectorRuntime {
         GameType mode = player.gameMode.getGameModeForPlayer();
         return player.isAlive() && !player.isSpectator() && (mode == GameType.SURVIVAL || mode == GameType.ADVENTURE)
                 && player.serverLevel().dimensionType().natural()
-                && player.getY() < player.serverLevel().getSeaLevel();
+                && DepthMath.isControlled(player.blockPosition().getY(),
+                controlCeiling(player.serverLevel(), player.blockPosition()));
     }
 
     private double depth(ServerPlayer player) {
         ServerLevel level = player.serverLevel();
-        return DepthMath.depthFactor(player.blockPosition().getY(), level.getSeaLevel(), level.getMinBuildHeight());
+        return DepthMath.depthFactor(player.blockPosition().getY(),
+                controlCeiling(level, player.blockPosition()), level.getMinBuildHeight());
+    }
+
+    static int controlCeiling(ServerLevel level, BlockPos position) {
+        return controlCeiling(level, position, DirectorConfig.SURFACE_RESERVE_DEPTH.get());
+    }
+
+    static int controlCeiling(ServerLevel level, BlockPos position, int reserveDepth) {
+        int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                position.getX(), position.getZ());
+        return DepthMath.controlCeiling(surfaceY, reserveDepth);
     }
 
     private static double healthRatio(Collection<ServerPlayer> players) {

@@ -12,6 +12,7 @@ public final class DirectorConfig {
     public static final ForgeConfigSpec.IntValue GLOBAL_DIRECTOR_CAP;
     public static final ForgeConfigSpec.IntValue MAX_SPAWNS_PER_TICK;
     public static final ForgeConfigSpec.IntValue MAX_SPAWNS_PER_SECOND;
+    public static final ForgeConfigSpec.IntValue SURFACE_RESERVE_DEPTH;
     public static final ForgeConfigSpec.IntValue SURFACE_DECAY_SECONDS;
 
     static {
@@ -25,7 +26,12 @@ public final class DirectorConfig {
         GLOBAL_DIRECTOR_CAP = builder.defineInRange("globalDirectorMobCap", 160, 1, 512);
         MAX_SPAWNS_PER_TICK = builder.defineInRange("maximumSpawnsPerTick", 8, 1, 32);
         MAX_SPAWNS_PER_SECOND = builder.defineInRange("maximumSpawnsPerSecond", 24, 1, 128);
-        SURFACE_DECAY_SECONDS = builder.comment("Seconds above sea level required to drain full pressure.")
+        SURFACE_RESERVE_DEPTH = builder.comment(
+                        "Number of blocks below the local leaf-ignoring terrain surface reserved before Director control begins.",
+                        "Keep this aligned with better_content_fixes mobs.naturalSurfaceDepth; the Better Content pack uses 6.")
+                .defineInRange("surfaceReserveDepth", 6, 0, 64);
+        SURFACE_DECAY_SECONDS = builder.comment(
+                        "Seconds outside the Director-controlled depth range required to drain full pressure.")
                 .defineInRange("surfacePressureDecaySeconds", 480, 30, 3600);
         builder.pop();
         SPEC = builder.build();

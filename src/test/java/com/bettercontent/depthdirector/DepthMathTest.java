@@ -17,7 +17,17 @@ class DepthMathTest {
     }
 
     @Test
-    void aboveSeaAndInvalidWorldsAreInactive() {
+    void surfaceReserveHasAnInclusiveBoundaryAndStartsControlOneBlockBelow() {
+        int ceiling = DepthMath.controlCeiling(80, 6);
+        assertEquals(74, ceiling);
+        assertEquals(false, DepthMath.isControlled(74, ceiling));
+        assertTrue(DepthMath.isControlled(73, ceiling));
+        assertEquals(0.0, DepthMath.depthFactor(74, ceiling, -64));
+        assertTrue(DepthMath.depthFactor(73, ceiling, -64) > 0.0);
+    }
+
+    @Test
+    void outsideControlRangeAndInvalidWorldsAreInactive() {
         assertEquals(0.0, DepthMath.depthFactor(100, 63, -64));
         assertEquals(0.0, DepthMath.depthFactor(0, 0, 0));
     }
