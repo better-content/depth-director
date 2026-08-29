@@ -31,15 +31,6 @@ final class DirectorRuntime {
     static final DirectorRuntime INSTANCE = new DirectorRuntime();
     private static final int SECURE_PROBE_INTERVAL = 100;
     private static final double DISTRESS_HEALTH = 0.35;
-    private static final int NATIVE_CADENCE_MIN = 240;
-    private static final int NATIVE_CADENCE_MAX = 420;
-    private static final int NATIVE_WARNING_MIN = 10;
-    private static final int NATIVE_WARNING_MAX = 24;
-    private static final int NATIVE_SURGE = 90;
-    private static final int NATIVE_RECOVERY = 90;
-    private static final int NATIVE_BUDGET = 64;
-    private static final int NATIVE_ACTIVE = 36;
-    private static final int NATIVE_PACKET_INTERVAL = 100;
 
     private final RandomSource random = RandomSource.create();
     private final Map<UUID, Encounter> encounters = new LinkedHashMap<>();
@@ -64,8 +55,8 @@ final class DirectorRuntime {
             spawnsThisSecond = 0;
             cleanupMobs(server);
             updatePressure(server, now);
-            updateEncounters(server, now);
         }
+        updateEncounters(server, now);
         processSpawnQueue(server, now);
     }
 
@@ -115,8 +106,9 @@ final class DirectorRuntime {
             DirectorSavedData.Track track = data.track(player.getUUID());
             ServerLevel level = player.serverLevel();
             if (player.getY() >= level.getSeaLevel()) {
-                double decay = 1.0 / Math.max(1, DirectorConfig.SURFACE_DECAY_SECONDS.get());
-                track.pressure(track.pressure() - decay);
+                track.pressure(DirectorPolicy.advancePressure(track.pressure(), 0.0, 1.0,
+                        false, false, false, false, false, true,
+                        DirectorConfig.SURFACE_DECAY_SECONDS.get()));
             }
         }
 
@@ -128,29 +120,32 @@ final class DirectorRuntime {
                 route = SpawnLocator.hasApproach(level, group, random);
                 for (ServerPlayer player : group) {
                     DirectorSavedData.Track track = data.track(player.getUUID());
-                    track.probeFailures(route ? 0 : track.probeFailures() + 1);
+                    track.probeFailures(DirectorPolicy.routeFailures(track.probeFailures(), true, route));
                 }
             }
             boolean secured = group.stream().allMatch(player -> data.track(player.getUUID()).probeFailures() >= 3);
-            if (secured || healthRatio(group) < DISTRESS_HEALTH || group.stream().anyMatch(DownedCompat::isDowned)) continue;
+            boolean distressed = healthRatio(group) < DISTRESS_HEALTH;
+            boolean downed = group.stream().anyMatch(DownedCompat::isDowned);
 
             Vec3 center = center(group);
             EcologyRegistry.Blend blend = level.dimension() == Level.OVERWORLD
                     ? EcologyRegistry.INSTANCE.blend(level.getSeed(), center) : null;
             for (ServerPlayer player : group) {
                 DirectorSavedData.Track track = data.track(player.getUUID());
-                if (now < track.recoveryUntil()) continue;
                 double depth = depth(player);
-                int minimum = blend == null ? NATIVE_CADENCE_MIN : (int) Math.round(blend.mix(
+                int minimum = blend == null ? DirectorPolicy.NATIVE_CADENCE_MIN : (int) Math.round(blend.mix(
                         blend.primary().cadenceMinimumSeconds(), blend.secondary() == null
                                 ? blend.primary().cadenceMinimumSeconds() : blend.secondary().cadenceMinimumSeconds()));
-                int maximum = blend == null ? NATIVE_CADENCE_MAX : (int) Math.round(blend.mix(
+                int maximum = blend == null ? DirectorPolicy.NATIVE_CADENCE_MAX : (int) Math.round(blend.mix(
                         blend.primary().cadenceMaximumSeconds(), blend.secondary() == null
                                 ? blend.primary().cadenceMaximumSeconds() : blend.secondary().cadenceMaximumSeconds()));
-                double cadence = DepthMath.lerp(minimum, maximum, track.jitter());
-                track.pressure(track.pressure() + depth / Math.max(1.0, cadence));
+                double cadence = DirectorPolicy.cadenceSeconds(minimum, maximum, track.jitter());
+                track.pressure(DirectorPolicy.advancePressure(track.pressure(), depth, cadence,
+                        true, secured, distressed, downed, now < track.recoveryUntil(),
+                        false, DirectorConfig.SURFACE_DECAY_SECONDS.get()));
             }
-            if (group.stream().anyMatch(player -> data.track(player.getUUID()).pressure() >= 1.0)) {
+            if (!secured && !distressed && !downed
+                    && group.stream().anyMatch(player -> data.track(player.getUUID()).pressure() >= 1.0)) {
                 createEncounter(server, group, blend, group.stream().mapToDouble(this::depth).average().orElse(0.0), now);
             }
         }
@@ -158,9 +153,9 @@ final class DirectorRuntime {
 
     private void createEncounter(MinecraftServer server, List<ServerPlayer> group, EcologyRegistry.Blend blend,
                                  double depth, long now) {
-        Profile profile = Profile.from(blend, depth, random);
+        DirectorPolicy.Profile profile = profile(blend, depth, random);
         Encounter encounter = new Encounter(UUID.randomUUID(), group.stream().map(ServerPlayer::getUUID).toList(), blend,
-                depth, profile, now + profile.warningTicks);
+                depth, profile, now + profile.warningTicks());
         encounters.put(encounter.id, encounter);
         DirectorSavedData data = DirectorSavedData.get(server);
         for (ServerPlayer player : group) {
@@ -183,71 +178,86 @@ final class DirectorRuntime {
                 continue;
             }
             List<ServerPlayer> underground = players.stream().filter(this::eligible).toList();
-            if (encounter.phase == Phase.WARNING) {
+            if (encounter.phase == DirectorPolicy.Phase.WARNING) {
                 if (now % 100L == 0L) playWarning(players.get(0).serverLevel(), players, encounter);
                 if (now >= encounter.phaseUntil) {
-                    if (underground.isEmpty() || !SpawnLocator.hasApproach(underground.get(0).serverLevel(), underground, random)) {
+                    boolean routeOpen = !underground.isEmpty()
+                            && SpawnLocator.hasApproach(underground.get(0).serverLevel(), underground, random);
+                    encounter.phase = DirectorPolicy.transition(encounter.phase, now, encounter.phaseUntil,
+                            !underground.isEmpty(), routeOpen, false, encounter.remainingBudget);
+                    if (encounter.phase == DirectorPolicy.Phase.RETIRED) {
                         restoreFrozenPressure(server, encounter);
                         retire(encounter, iterator);
                     } else {
-                        encounter.phase = Phase.SURGE;
-                        encounter.phaseUntil = now + encounter.profile.surgeTicks;
+                        encounter.phaseUntil = now + encounter.profile.surgeTicks();
                         encounter.nextPacket = now;
                     }
                 }
                 continue;
             }
-            if (encounter.phase == Phase.SURGE) {
-                if (players.stream().anyMatch(DownedCompat::isDowned)) {
-                    encounter.phase = Phase.RESCUE;
-                    encounter.queuedSpawns = 0;
+            if (encounter.phase == DirectorPolicy.Phase.SURGE) {
+                DirectorPolicy.Phase next = DirectorPolicy.transition(encounter.phase, now, encounter.phaseUntil,
+                        !underground.isEmpty(), true, players.stream().anyMatch(DownedCompat::isDowned),
+                        encounter.remainingBudget);
+                if (next == DirectorPolicy.Phase.RESCUE) {
+                    encounter.phase = next;
+                    encounter.queuedSpawns = DirectorPolicy.queuedWorkAfterTransition(encounter.queuedSpawns, next);
                     encounter.remainingBudget = 0;
                     continue;
                 }
-                if (underground.isEmpty() || now >= encounter.phaseUntil || encounter.remainingBudget <= 0) {
+                if (next == DirectorPolicy.Phase.RECOVERY) {
                     beginRecovery(server, encounter, now);
                     continue;
                 }
-                int currentCap = encounter.profile.deepBudgetPerPlayer * underground.size();
+                DirectorPolicy.PopulationLimits limits = DirectorPolicy.scaleForPlayers(encounter.profile,
+                        underground.size(), DirectorConfig.GLOBAL_DIRECTOR_CAP.get());
+                int currentCap = limits.budget();
                 encounter.remainingBudget = Math.min(encounter.remainingBudget,
                         Math.max(0, currentCap - encounter.spentBudget));
-                int activeLimit = Math.max(1, encounter.profile.activeTargetPerPlayer * underground.size());
+                int activeLimit = Math.max(1, limits.activeTarget());
                 int active = activeNear(server, underground);
-                int interval = encounter.profile.packetIntervalTicks;
-                if (healthRatio(underground) < DISTRESS_HEALTH) interval *= 3;
-                if (now >= encounter.nextPacket && active < activeLimit) {
-                    int packet = Math.min(activeLimit - active, Math.max(1, 6 * underground.size()));
-                    encounter.queuedSpawns = Math.min(encounter.queuedSpawns + packet, packet * 2);
+                int interval = DirectorPolicy.packetInterval(encounter.profile.packetIntervalTicks(),
+                        healthRatio(underground), DISTRESS_HEALTH);
+                if (now >= encounter.nextPacket && active < activeLimit && encounter.queuedSpawns == 0) {
+                    int packet = DirectorPolicy.packetSize(active, activeLimit, underground.size());
+                    encounter.queuedSpawns = packet;
                     encounter.heavySpawnedInPacket = false;
                     encounter.nextPacket = now + interval;
                 }
                 continue;
             }
-            if (encounter.phase == Phase.RESCUE) {
-                if (players.stream().noneMatch(DownedCompat::isDowned)) beginRecovery(server, encounter, now);
+            if (encounter.phase == DirectorPolicy.Phase.RESCUE) {
+                encounter.phase = DirectorPolicy.transition(encounter.phase, now, encounter.phaseUntil,
+                        !underground.isEmpty(), true, players.stream().anyMatch(DownedCompat::isDowned), 0);
+                if (encounter.phase == DirectorPolicy.Phase.RECOVERY) beginRecovery(server, encounter, now);
                 continue;
             }
-            if (encounter.phase == Phase.RECOVERY && now >= encounter.phaseUntil) retire(encounter, iterator);
+            if (encounter.phase == DirectorPolicy.Phase.RECOVERY
+                    && DirectorPolicy.transition(encounter.phase, now, encounter.phaseUntil,
+                    !underground.isEmpty(), true, false, 0) == DirectorPolicy.Phase.RETIRED) {
+                retire(encounter, iterator);
+            }
         }
     }
 
     private void processSpawnQueue(MinecraftServer server, long now) {
-        int tickLimit = DirectorConfig.MAX_SPAWNS_PER_TICK.get();
-        int secondRemaining = Math.max(0, DirectorConfig.MAX_SPAWNS_PER_SECOND.get() - spawnsThisSecond);
-        int globalRemaining = Math.max(0, DirectorConfig.GLOBAL_DIRECTOR_CAP.get() - directorMobs.size());
-        int allowance = Math.min(tickLimit, Math.min(secondRemaining, globalRemaining));
+        int allowance = DirectorPolicy.globalSpawnAllowance(DirectorConfig.MAX_SPAWNS_PER_TICK.get(),
+                DirectorConfig.MAX_SPAWNS_PER_SECOND.get(), spawnsThisSecond,
+                DirectorConfig.GLOBAL_DIRECTOR_CAP.get(), directorMobs.size());
         if (allowance <= 0 || encounters.isEmpty()) return;
         List<Encounter> active = encounters.values().stream()
-                .filter(encounter -> encounter.phase == Phase.SURGE && encounter.queuedSpawns > 0 && encounter.remainingBudget > 0)
+                .filter(encounter -> encounter.phase == DirectorPolicy.Phase.SURGE
+                        && encounter.queuedSpawns > 0 && encounter.remainingBudget > 0)
                 .toList();
         if (active.isEmpty()) return;
         for (int attempt = 0; attempt < allowance; attempt++) {
-            Encounter encounter = active.get((roundRobinOffset + attempt) % active.size());
+            Encounter encounter = active.get(DirectorPolicy.roundRobinIndex(roundRobinOffset, attempt, active.size()));
             List<ServerPlayer> players = encounter.players(server).stream().filter(this::eligible).toList();
             if (players.isEmpty() || encounter.queuedSpawns <= 0) continue;
-            int sector = encounter.profile.maximizeDirections ? encounter.nextSector++ & 7 : -1;
+            int sector = encounter.profile.maximizeDirections() ? encounter.nextSector++ & 7 : -1;
             SpawnLocator.SpawnResult result = SpawnLocator.spawn(players.get(0).serverLevel(), players,
-                    encounter.blend, encounter.depth, random, sector, !encounter.heavySpawnedInPacket);
+                    encounter.blend, encounter.depth, random, sector, !encounter.heavySpawnedInPacket,
+                    encounter.remainingBudget);
             encounter.queuedSpawns--;
             if (!result.spawned()) continue;
             registerMob(result.mob());
@@ -256,7 +266,7 @@ final class DirectorRuntime {
             encounter.spentBudget += result.cost();
             spawnsThisSecond++;
         }
-        roundRobinOffset = (roundRobinOffset + 1) % Math.max(1, active.size());
+        roundRobinOffset = DirectorPolicy.nextRoundRobinOffset(roundRobinOffset, active.size());
     }
 
     private void playWarning(ServerLevel level, List<ServerPlayer> players, Encounter encounter) {
@@ -270,9 +280,9 @@ final class DirectorRuntime {
     }
 
     private void beginRecovery(MinecraftServer server, Encounter encounter, long now) {
-        encounter.phase = Phase.RECOVERY;
-        encounter.queuedSpawns = 0;
-        encounter.phaseUntil = now + encounter.profile.recoveryTicks;
+        encounter.phase = DirectorPolicy.Phase.RECOVERY;
+        encounter.queuedSpawns = DirectorPolicy.queuedWorkAfterTransition(encounter.queuedSpawns, encounter.phase);
+        encounter.phaseUntil = now + encounter.profile.recoveryTicks();
         DirectorSavedData data = DirectorSavedData.get(server);
         encounter.participants.forEach(player -> data.track(player).recoveryUntil(encounter.phaseUntil));
     }
@@ -281,7 +291,7 @@ final class DirectorRuntime {
         DirectorSavedData data = DirectorSavedData.get(server);
         encounter.participants.forEach(player -> {
             DirectorSavedData.Track track = data.track(player);
-            track.pressure(1.0);
+            track.pressure(0.90);
             track.probeFailures(3);
         });
     }
@@ -374,15 +384,13 @@ final class DirectorRuntime {
 
     private static String format(double value) { return String.format(java.util.Locale.ROOT, "%.3f", value); }
 
-    private enum Phase { WARNING, SURGE, RESCUE, RECOVERY }
-
     private static final class Encounter {
         private final UUID id;
         private final List<UUID> participants;
         private final EcologyRegistry.Blend blend;
         private final double depth;
-        private final Profile profile;
-        private Phase phase = Phase.WARNING;
+        private final DirectorPolicy.Profile profile;
+        private DirectorPolicy.Phase phase = DirectorPolicy.Phase.WARNING;
         private long phaseUntil;
         private long nextPacket;
         private int remainingBudget;
@@ -392,14 +400,14 @@ final class DirectorRuntime {
         private boolean heavySpawnedInPacket;
 
         private Encounter(UUID id, List<UUID> participants, EcologyRegistry.Blend blend, double depth,
-                          Profile profile, long phaseUntil) {
+                          DirectorPolicy.Profile profile, long phaseUntil) {
             this.id = id;
             this.participants = new ArrayList<>(participants);
             this.blend = blend;
             this.depth = depth;
             this.profile = profile;
             this.phaseUntil = phaseUntil;
-            this.remainingBudget = profile.deepBudgetPerPlayer * participants.size();
+            this.remainingBudget = profile.budgetPerPlayer() * participants.size();
         }
 
         private List<ServerPlayer> players(MinecraftServer server) {
@@ -407,29 +415,21 @@ final class DirectorRuntime {
         }
     }
 
-    private record Profile(int warningTicks, int surgeTicks, int recoveryTicks, int deepBudgetPerPlayer,
-                           int activeTargetPerPlayer, int packetIntervalTicks, boolean maximizeDirections) {
-        private static Profile from(EcologyRegistry.Blend blend, double depth, RandomSource random) {
-            int warningMin = NATIVE_WARNING_MIN, warningMax = NATIVE_WARNING_MAX;
-            int surge = NATIVE_SURGE, recovery = NATIVE_RECOVERY, budget = NATIVE_BUDGET,
-                    active = NATIVE_ACTIVE, packet = NATIVE_PACKET_INTERVAL;
-            boolean directions = false;
-            if (blend != null) {
-                EcologyDefinition primary = blend.primary();
-                EcologyDefinition secondary = blend.secondary() == null ? primary : blend.secondary();
-                warningMin = (int) Math.round(blend.mix(primary.warningMinimumSeconds(), secondary.warningMinimumSeconds()));
-                warningMax = (int) Math.round(blend.mix(primary.warningMaximumSeconds(), secondary.warningMaximumSeconds()));
-                surge = (int) Math.round(blend.mix(primary.surgeSeconds(), secondary.surgeSeconds()));
-                recovery = (int) Math.round(blend.mix(primary.recoverySeconds(), secondary.recoverySeconds()));
-                budget = (int) Math.round(blend.mix(primary.deepBudgetPerPlayer(), secondary.deepBudgetPerPlayer()));
-                active = (int) Math.round(blend.mix(primary.deepActiveTargetPerPlayer(), secondary.deepActiveTargetPerPlayer()));
-                packet = (int) Math.round(blend.mix(primary.packetIntervalTicks(), secondary.packetIntervalTicks()));
-                directions = primary.maximizeDirections() || secondary.maximizeDirections();
-            }
-            int warning = warningMin + random.nextInt(Math.max(1, warningMax - warningMin + 1));
-            int scaledBudget = (int) Math.round(DepthMath.lerp(8, budget, depth));
-            int scaledActive = (int) Math.round(DepthMath.lerp(6, active, depth));
-            return new Profile(warning * 20, surge * 20, recovery * 20, scaledBudget, scaledActive, packet, directions);
+    private static DirectorPolicy.Profile profile(EcologyRegistry.Blend blend, double depth, RandomSource random) {
+        DirectorPolicy.ProfileSpec spec = DirectorPolicy.nativeSpec();
+        if (blend != null) {
+            EcologyDefinition primary = blend.primary();
+            EcologyDefinition secondary = blend.secondary() == null ? primary : blend.secondary();
+            spec = new DirectorPolicy.ProfileSpec(
+                    (int) Math.round(blend.mix(primary.warningMinimumSeconds(), secondary.warningMinimumSeconds())),
+                    (int) Math.round(blend.mix(primary.warningMaximumSeconds(), secondary.warningMaximumSeconds())),
+                    (int) Math.round(blend.mix(primary.surgeSeconds(), secondary.surgeSeconds())),
+                    (int) Math.round(blend.mix(primary.recoverySeconds(), secondary.recoverySeconds())),
+                    (int) Math.round(blend.mix(primary.deepBudgetPerPlayer(), secondary.deepBudgetPerPlayer())),
+                    (int) Math.round(blend.mix(primary.deepActiveTargetPerPlayer(), secondary.deepActiveTargetPerPlayer())),
+                    (int) Math.round(blend.mix(primary.packetIntervalTicks(), secondary.packetIntervalTicks())),
+                    primary.maximizeDirections() || secondary.maximizeDirections());
         }
+        return DirectorPolicy.scaleProfile(spec, depth, random.nextDouble());
     }
 }

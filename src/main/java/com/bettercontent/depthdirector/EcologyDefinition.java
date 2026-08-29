@@ -9,6 +9,7 @@ import net.minecraft.util.RandomSource;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Predicate;
 
 public record EcologyDefinition(
         ResourceLocation id,
@@ -58,7 +59,15 @@ public record EcologyDefinition(
     }
 
     public Entry pick(RandomSource random, double depth) {
-        List<Entry> available = roster.stream().filter(entry -> entry.minimumDepth <= depth).toList();
+        return pick(random, depth, true, ignored -> true);
+    }
+
+    Entry pick(RandomSource random, double depth, boolean allowHeavy, Predicate<ResourceLocation> eligible) {
+        List<Entry> available = roster.stream()
+                .filter(entry -> entry.minimumDepth <= depth)
+                .filter(entry -> allowHeavy || entry.role != Role.HEAVY)
+                .filter(entry -> eligible.test(entry.entity))
+                .toList();
         if (available.isEmpty()) return null;
         int total = available.stream().mapToInt(Entry::selectionWeight).sum();
         int roll = random.nextInt(Math.max(1, total));

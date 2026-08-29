@@ -14,6 +14,7 @@ import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.biome.MobSpawnSettings;
+import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.ForgeEventFactory;
@@ -45,12 +46,12 @@ final class SpawnLocator {
     }
 
     static SpawnResult spawn(ServerLevel level, List<ServerPlayer> players, EcologyRegistry.Blend blend,
-                             double depth, RandomSource random, int sector, boolean allowHeavy) {
+                             double depth, RandomSource random, int sector, boolean allowHeavy, int maximumCost) {
         if (players.isEmpty()) return SpawnResult.failed();
         ServerPlayer anchorPlayer = players.get(random.nextInt(players.size()));
         Selection selection = blend == null ? nativeSelection(level, anchorPlayer.blockPosition(), random)
-                : authoredSelection(blend, depth, random, allowHeavy);
-        if (selection == null || selection.type.is(DENIED)) return SpawnResult.failed();
+                : authoredSelection(blend, depth, random, allowHeavy, maximumCost);
+        if (selection == null || selection.cost > maximumCost || selection.type.is(DENIED)) return SpawnResult.failed();
         Mob mob = selection.type.create(level) instanceof Mob created ? created : null;
         if (mob == null) return SpawnResult.failed();
         Candidate candidate = candidate(level, players, anchorPlayer.position(), random, sector, mob);
@@ -58,6 +59,28 @@ final class SpawnLocator {
             mob.discard();
             return SpawnResult.failed();
         }
+        return finishSpawn(level, candidate, selection, mob, random);
+    }
+
+    static SpawnResult spawnAt(ServerLevel level, List<ServerPlayer> players, EcologyRegistry.Blend blend,
+                               double depth, RandomSource random, BlockPos position, boolean allowHeavy,
+                               int maximumCost) {
+        if (players.isEmpty()) return SpawnResult.failed();
+        Selection selection = blend == null ? nativeSelection(level, position, random)
+                : authoredSelection(blend, depth, random, allowHeavy, maximumCost);
+        if (selection == null || selection.cost > maximumCost || selection.type.is(DENIED)) return SpawnResult.failed();
+        Mob mob = selection.type.create(level) instanceof Mob created ? created : null;
+        if (mob == null) return SpawnResult.failed();
+        Candidate candidate = validateCandidate(level, players, position, mob).orElse(null);
+        if (candidate == null) {
+            mob.discard();
+            return SpawnResult.failed();
+        }
+        return finishSpawn(level, candidate, selection, mob, random);
+    }
+
+    private static SpawnResult finishSpawn(ServerLevel level, Candidate candidate, Selection selection,
+                                           Mob mob, RandomSource random) {
         mob.moveTo(candidate.position.getX() + 0.5, candidate.position.getY(), candidate.position.getZ() + 0.5,
                 random.nextFloat() * 360.0F, 0.0F);
         if (!ForgeEventFactory.checkSpawnPosition(mob, level, MobSpawnType.EVENT)
@@ -78,12 +101,15 @@ final class SpawnLocator {
     }
 
     private static Selection authoredSelection(EcologyRegistry.Blend blend, double depth, RandomSource random,
-                                               boolean allowHeavy) {
+                                               boolean allowHeavy, int maximumCost) {
         for (int attempt = 0; attempt < 8; attempt++) {
             EcologyDefinition ecology = blend.choose(random);
-            EcologyDefinition.Entry entry = ecology.pick(random, depth);
+            EcologyDefinition.Entry entry = ecology.pick(random, depth, allowHeavy, entity -> {
+                EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(entity);
+                return type != null && type.getCategory() == MobCategory.MONSTER;
+            });
             if (entry == null) continue;
-            if (!allowHeavy && entry.role() == EcologyDefinition.Role.HEAVY) continue;
+            if (entry.cost() > maximumCost) continue;
             EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(entry.entity());
             if (type != null && type.getCategory() == MobCategory.MONSTER) {
                 return new Selection(type, entry.cost(), entry.role());
@@ -113,30 +139,60 @@ final class SpawnLocator {
         int minimum = DirectorConfig.SPAWN_MINIMUM_RADIUS.get();
         int maximum = Math.max(minimum, DirectorConfig.SPAWN_MAXIMUM_RADIUS.get());
         for (int attempt = 0; attempt < 48; attempt++) {
-            double angle = sector >= 0
-                    ? (sector + random.nextDouble()) * Math.PI / 4.0
-                    : random.nextDouble() * Math.PI * 2.0;
-            double radius = minimum + random.nextDouble() * (maximum - minimum);
-            int x = (int) Math.floor(anchor.x + Math.cos(angle) * radius);
-            int z = (int) Math.floor(anchor.z + Math.sin(angle) * radius);
-            int startY = (int) Math.floor(anchor.y) + random.nextInt(25) - 8;
+            BlockPos sample = samplePosition(anchor, random, sector, minimum, maximum);
+            int x = sample.getX();
+            int z = sample.getZ();
+            int startY = sample.getY();
             for (int offset = 0; offset < 32; offset++) {
                 BlockPos position = new BlockPos(x, startY - offset, z);
                 if (!level.hasChunkAt(position)) break;
-                if (!isFloor(level, position)) continue;
-                if (level.getBrightness(LightLayer.BLOCK, position) > DirectorConfig.BLOCK_LIGHT_LIMIT.get()) break;
-                if (visibleToAny(level, position, players)) break;
-                ServerPlayer target = players.stream().filter(player -> player.isAlive() && !DownedCompat.isDowned(player))
-                        .min(Comparator.comparingDouble(player -> player.distanceToSqr(Vec3.atCenterOf(position))))
-                        .orElse(null);
-                if (target == null) return null;
-                mob.moveTo(position.getX() + 0.5, position.getY(), position.getZ() + 0.5, 0.0F, 0.0F);
-                if (!level.noCollision(mob)) break;
-                if (mob.getNavigation().createPath(target.blockPosition(), 0) == null) break;
-                return new Candidate(position.immutable(), target);
+                Candidate candidate = validateCandidate(level, players, position, mob).orElse(null);
+                if (candidate != null) return candidate;
+                if (isFloor(level, position)) break;
             }
         }
         return null;
+    }
+
+    static BlockPos samplePosition(Vec3 anchor, RandomSource random, int sector, int minimum, int maximum) {
+        int safeMaximum = Math.max(minimum, maximum);
+        double angle = sector >= 0
+                ? (sector + random.nextDouble()) * Math.PI / 4.0
+                : random.nextDouble() * Math.PI * 2.0;
+        double radius = minimum + random.nextDouble() * (safeMaximum - minimum);
+        return new BlockPos((int) Math.floor(anchor.x + Math.cos(angle) * radius),
+                (int) Math.floor(anchor.y) + random.nextInt(25) - 8,
+                (int) Math.floor(anchor.z + Math.sin(angle) * radius));
+    }
+
+    static Optional<Candidate> validateCandidate(ServerLevel level, List<ServerPlayer> players,
+                                                 BlockPos position, Mob mob) {
+        return inspectCandidate(level, players, position, mob).candidate();
+    }
+
+    static CandidateValidation inspectCandidate(ServerLevel level, List<ServerPlayer> players,
+                                                BlockPos position, Mob mob) {
+        if (!level.hasChunkAt(position) || !isFloor(level, position)) {
+            return CandidateValidation.rejected(Rejection.OCCUPIED);
+        }
+        int localLight = Math.max(level.getBrightness(LightLayer.BLOCK, position),
+                level.getBrightness(LightLayer.SKY, position));
+        if (localLight > DirectorConfig.BLOCK_LIGHT_LIMIT.get() || level.canSeeSky(position)) {
+            return CandidateValidation.rejected(Rejection.LIT);
+        }
+        if (visibleToAny(level, position, players)) {
+            return CandidateValidation.rejected(Rejection.VISIBLE);
+        }
+        ServerPlayer target = players.stream().filter(player -> player.isAlive() && !DownedCompat.isDowned(player))
+                .min(Comparator.comparingDouble(player -> player.distanceToSqr(Vec3.atCenterOf(position))))
+                .orElse(null);
+        if (target == null) return CandidateValidation.rejected(Rejection.NO_TARGET);
+        mob.moveTo(position.getX() + 0.5, position.getY(), position.getZ() + 0.5, 0.0F, 0.0F);
+        if (!level.noCollision(mob)) return CandidateValidation.rejected(Rejection.COLLISION);
+        mob.setOnGround(true);
+        Path path = mob.getNavigation().createPath(target.blockPosition(), 0);
+        if (path == null || !path.canReach()) return CandidateValidation.rejected(Rejection.UNREACHABLE);
+        return CandidateValidation.accepted(new Candidate(position.immutable(), target));
     }
 
     private static boolean isFloor(ServerLevel level, BlockPos position) {
@@ -158,7 +214,16 @@ final class SpawnLocator {
         return false;
     }
 
-    private record Candidate(BlockPos position, ServerPlayer target) {}
+    record Candidate(BlockPos position, ServerPlayer target) {}
+    enum Rejection { NONE, OCCUPIED, LIT, VISIBLE, NO_TARGET, COLLISION, UNREACHABLE }
+    record CandidateValidation(Optional<Candidate> candidate, Rejection rejection) {
+        static CandidateValidation accepted(Candidate candidate) {
+            return new CandidateValidation(Optional.of(candidate), Rejection.NONE);
+        }
+        static CandidateValidation rejected(Rejection rejection) {
+            return new CandidateValidation(Optional.empty(), rejection);
+        }
+    }
     private record Selection(EntityType<?> type, int cost, EcologyDefinition.Role role) {}
     record SpawnResult(boolean spawned, Mob mob, int cost, EcologyDefinition.Role role) {
         static SpawnResult failed() { return new SpawnResult(false, null, 0, null); }
