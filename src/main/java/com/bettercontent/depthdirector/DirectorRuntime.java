@@ -222,6 +222,7 @@ final class DirectorRuntime {
                     int packet = DirectorPolicy.packetSize(active, activeLimit, underground.size());
                     encounter.queuedSpawns = packet;
                     encounter.heavySpawnedInPacket = false;
+                    encounter.packetCounts.clear();
                     encounter.nextPacket = now + interval;
                 }
                 continue;
@@ -257,11 +258,19 @@ final class DirectorRuntime {
             int sector = encounter.profile.maximizeDirections() ? encounter.nextSector++ & 7 : -1;
             SpawnLocator.SpawnResult result = SpawnLocator.spawn(players.get(0).serverLevel(), players,
                     encounter.blend, encounter.depth, random, sector, !encounter.heavySpawnedInPacket,
-                    encounter.remainingBudget);
+                    encounter.remainingBudget, entry -> entry.allowsPacketCount(
+                            encounter.packetCounts.getOrDefault(entry.entity(), 0))
+                            && entry.allowsEncounterCount(
+                            encounter.encounterCounts.getOrDefault(entry.entity(), 0),
+                            encounter.participants.size()));
             encounter.queuedSpawns--;
             if (!result.spawned()) continue;
             registerMob(result.mob());
             if (result.role() == EcologyDefinition.Role.HEAVY) encounter.heavySpawnedInPacket = true;
+            if (result.entity() != null) {
+                encounter.packetCounts.merge(result.entity(), 1, Integer::sum);
+                encounter.encounterCounts.merge(result.entity(), 1, Integer::sum);
+            }
             encounter.remainingBudget = Math.max(0, encounter.remainingBudget - result.cost());
             encounter.spentBudget += result.cost();
             spawnsThisSecond++;
@@ -398,6 +407,8 @@ final class DirectorRuntime {
         private int queuedSpawns;
         private int nextSector;
         private boolean heavySpawnedInPacket;
+        private final Map<ResourceLocation, Integer> packetCounts = new HashMap<>();
+        private final Map<ResourceLocation, Integer> encounterCounts = new HashMap<>();
 
         private Encounter(UUID id, List<UUID> participants, EcologyRegistry.Blend blend, double depth,
                           DirectorPolicy.Profile profile, long phaseUntil) {

@@ -37,8 +37,8 @@ public final class DepthDirectorGameTests {
         ServerPlayer player = player(helper, PLAYER);
         helper.runAfterDelay(10, () -> {
             helper.assertTrue(EcologyRegistry.INSTANCE.definitions().keySet().containsAll(List.of(
-                    id("undead"), id("end"), id("sculk"))),
-                    "all three authored ecologies must be loaded by the reload listener");
+                    id("undead"), id("carrion"), id("spirits"), id("end"), id("sculk"))),
+                    "all five authored ecologies must be loaded by the reload listener");
             Mob zombie = zombie(helper);
             SpawnLocator.CandidateValidation validation = SpawnLocator.inspectCandidate(helper.getLevel(), List.of(player),
                     helper.absolutePos(SPAWN), zombie);
@@ -153,9 +153,9 @@ public final class DepthDirectorGameTests {
                     loaded.cadenceMinimumSeconds(), loaded.cadenceMaximumSeconds(), loaded.warningMinimumSeconds(),
                     loaded.warningMaximumSeconds(), loaded.surgeSeconds(), loaded.recoverySeconds(),
                     loaded.deepBudgetPerPlayer(), loaded.deepActiveTargetPerPlayer(), loaded.packetIntervalTicks(),
-                    loaded.maximizeDirections(), loaded.warningSounds(), loaded.roster().stream()
-                    .filter(entry -> entry.entity().equals(new net.minecraft.resources.ResourceLocation("minecraft", "zombie")))
-                    .toList());
+                    loaded.maximizeDirections(), loaded.warningSounds(), List.of(new EcologyDefinition.Entry(
+                    new net.minecraft.resources.ResourceLocation("minecraft", "zombie"),
+                    EcologyDefinition.Role.COMMON, 0.0, 1, 1, 1, 1)));
             SpawnLocator.SpawnResult result = SpawnLocator.spawnAt(helper.getLevel(), List.of(player),
                     new EcologyRegistry.Blend(zombieOnly, null, 0.0), 1.0, RandomSource.create(71L),
                     helper.absolutePos(SPAWN), true, 8);

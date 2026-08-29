@@ -43,7 +43,10 @@ public record EcologyDefinition(
                     new ResourceLocation(entry.get("entity").getAsString()),
                     Role.valueOf(entry.get("role").getAsString().toUpperCase()),
                     entry.has("minimum_depth") ? entry.get("minimum_depth").getAsDouble() : 0.0,
-                    entry.has("weight") ? entry.get("weight").getAsInt() : 0));
+                    entry.has("weight") ? entry.get("weight").getAsInt() : 0,
+                    entry.has("cost") ? entry.get("cost").getAsInt() : 0,
+                    entry.has("maximum_per_packet") ? entry.get("maximum_per_packet").getAsInt() : 0,
+                    entry.has("maximum_per_encounter") ? entry.get("maximum_per_encounter").getAsInt() : 0));
         }
         if (entries.isEmpty()) throw new IllegalArgumentException("Ecology roster is empty: " + id);
         return new EcologyDefinition(
@@ -63,10 +66,16 @@ public record EcologyDefinition(
     }
 
     Entry pick(RandomSource random, double depth, boolean allowHeavy, Predicate<ResourceLocation> eligible) {
+        return pick(random, depth, allowHeavy, eligible, ignored -> true);
+    }
+
+    Entry pick(RandomSource random, double depth, boolean allowHeavy, Predicate<ResourceLocation> eligible,
+               Predicate<Entry> selectable) {
         List<Entry> available = roster.stream()
                 .filter(entry -> entry.minimumDepth <= depth)
                 .filter(entry -> allowHeavy || entry.role != Role.HEAVY)
                 .filter(entry -> eligible.test(entry.entity))
+                .filter(selectable)
                 .toList();
         if (available.isEmpty()) return null;
         int total = available.stream().mapToInt(Entry::selectionWeight).sum();
@@ -104,9 +113,35 @@ public record EcologyDefinition(
         return result;
     }
 
-    public record Entry(ResourceLocation entity, Role role, double minimumDepth, int explicitWeight) {
+    public record Entry(ResourceLocation entity, Role role, double minimumDepth, int explicitWeight,
+                        int explicitCost, int maximumPerPacket, int maximumPerEncounter) {
+        public Entry {
+            if (minimumDepth < 0.0 || minimumDepth > 1.0) {
+                throw new IllegalArgumentException("minimum_depth must be between 0 and 1 for " + entity);
+            }
+            if (explicitWeight < 0) throw new IllegalArgumentException("weight cannot be negative for " + entity);
+            if (explicitCost < 0 || explicitCost > 64) {
+                throw new IllegalArgumentException("cost must be between 0 and 64 for " + entity);
+            }
+            if (maximumPerPacket < 0 || maximumPerPacket > 160
+                    || maximumPerEncounter < 0 || maximumPerEncounter > 160) {
+                throw new IllegalArgumentException("roster limits must be between 0 and 160 for " + entity);
+            }
+        }
+
+        public Entry(ResourceLocation entity, Role role, double minimumDepth, int explicitWeight) {
+            this(entity, role, minimumDepth, explicitWeight, 0, 0, 0);
+        }
+
         public int selectionWeight() { return explicitWeight > 0 ? explicitWeight : role.weight; }
-        public int cost() { return role.cost; }
+        public int cost() { return explicitCost > 0 ? explicitCost : role.cost; }
+        public boolean allowsPacketCount(int successfulSpawns) {
+            return maximumPerPacket == 0 || successfulSpawns < maximumPerPacket;
+        }
+        public boolean allowsEncounterCount(int successfulSpawns, int players) {
+            return maximumPerEncounter == 0
+                    || successfulSpawns < maximumPerEncounter * Math.max(1, players);
+        }
     }
 
     public enum Role {

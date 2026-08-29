@@ -9,14 +9,17 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DirectorSimulationTest {
@@ -45,6 +48,8 @@ class DirectorSimulationTest {
     void encounterCadenceFallsMonotonicallyWithDepthAndMeetsDeepBands() {
         Map<String, double[]> bands = Map.of(
                 "undead", new double[]{2.5, 6.5},
+                "carrion", new double[]{3.0, 8.0},
+                "spirits", new double[]{4.0, 9.5},
                 "end", new double[]{4.5, 10.5},
                 "sculk", new double[]{6.5, 12.5},
                 "native", new double[]{3.5, 8.0});
@@ -92,6 +97,7 @@ class DirectorSimulationTest {
     @Test
     void rosterSimulationReachesPopulationBandsWithoutBreakingLimits() {
         double depth = DepthMath.depthFactor(DEEP_Y, SEA_LEVEL, MINIMUM_Y);
+        List<String> violations = new ArrayList<>();
         for (ProfileCase profileCase : profiles()) {
             List<Integer> peaks = new ArrayList<>(SEEDS);
             int target = DirectorPolicy.scaleForPlayers(
@@ -100,10 +106,14 @@ class DirectorSimulationTest {
             peaks.sort(Comparator.naturalOrder());
             int fifthPercentile = peaks.get((int) Math.floor((peaks.size() - 1) * 0.05));
             int median = peaks.get(peaks.size() / 2);
-            assertTrue(median >= Math.ceil(target * 0.80), profileCase.name + " median peak " + median);
-            assertTrue(fifthPercentile >= Math.ceil(target * 0.60),
-                    profileCase.name + " fifth-percentile peak " + fifthPercentile);
+            if (median < Math.ceil(target * 0.80)) {
+                violations.add(profileCase.name + " median peak " + median + "/" + target);
+            }
+            if (fifthPercentile < Math.ceil(target * 0.60)) {
+                violations.add(profileCase.name + " fifth-percentile peak " + fifthPercentile + "/" + target);
+            }
         }
+        assertTrue(violations.isEmpty(), String.join(", ", violations));
     }
 
     @Test
@@ -195,13 +205,80 @@ class DirectorSimulationTest {
         EcologyDefinition undead = ECOLOGIES.get("undead");
         for (long seed = 0; seed < SEEDS; seed++) {
             EcologyDefinition.Entry entry = undead.pick(RandomSource.create(seed), 1.0, true,
-                    id -> id.getNamespace().equals("minecraft"));
+                    id -> id.getNamespace().equals("quark"));
             assertNotNull(entry);
-            assertEquals("minecraft", entry.entity().getNamespace());
+            assertEquals("quark", entry.entity().getNamespace());
         }
         EcologyDefinition.Entry noHeavy = undead.pick(RandomSource.create(1L), 1.0, false,
                 id -> id.getPath().contains("bruiser"));
         assertNull(noHeavy);
+    }
+
+    @Test
+    void authoredRostersExcludeBaseZombieAndSkeletonAndCarryExplicitLimits() {
+        Set<ResourceLocation> excluded = Set.of(
+                new ResourceLocation("minecraft", "zombie"),
+                new ResourceLocation("minecraft", "skeleton"));
+        for (Map.Entry<String, EcologyDefinition> ecology : ECOLOGIES.entrySet()) {
+            assertTrue(ecology.getValue().roster().stream().noneMatch(entry -> excluded.contains(entry.entity())),
+                    ecology.getKey() + " must not direct vanilla zombies or skeletons");
+            for (EcologyDefinition.Entry entry : ecology.getValue().roster()) {
+                assertTrue(entry.cost() > 0, entry.entity() + " must consume budget");
+                assertTrue(entry.maximumPerPacket() > 0, entry.entity() + " must have a packet cap");
+                assertTrue(entry.maximumPerEncounter() > 0, entry.entity() + " must have an encounter cap");
+            }
+        }
+    }
+
+    @Test
+    void rosterSchemaDefaultsRemainCompatibleAndRejectsInvalidLimits() {
+        String prefix = "{\"cadence_seconds\":{\"minimum\":180,\"maximum\":300},"
+                + "\"warning_seconds\":{\"minimum\":10,\"maximum\":20},"
+                + "\"surge_seconds\":60,\"recovery_seconds\":60,"
+                + "\"deep_budget_per_player\":60,\"deep_active_target_per_player\":30,"
+                + "\"packet_interval_ticks\":100,\"roster\":[";
+        EcologyDefinition parsed = EcologyDefinition.parse(new ResourceLocation("depth_director", "schema"),
+                JsonParser.parseString(prefix
+                        + "{\"entity\":\"example:defaulted\",\"role\":\"line\"},"
+                        + "{\"entity\":\"example:limited\",\"role\":\"common\",\"cost\":5,"
+                        + "\"maximum_per_packet\":2,\"maximum_per_encounter\":3}]}" ).getAsJsonObject());
+        EcologyDefinition.Entry defaulted = parsed.roster().get(0);
+        assertEquals(EcologyDefinition.Role.LINE.cost(), defaulted.cost());
+        assertTrue(defaulted.allowsPacketCount(10_000));
+        assertTrue(defaulted.allowsEncounterCount(10_000, 4));
+        EcologyDefinition.Entry limited = parsed.roster().get(1);
+        assertEquals(5, limited.cost());
+        assertTrue(limited.allowsPacketCount(1));
+        assertTrue(!limited.allowsPacketCount(2));
+        assertTrue(limited.allowsEncounterCount(11, 4));
+        assertTrue(!limited.allowsEncounterCount(12, 4));
+
+        assertThrows(IllegalArgumentException.class, () -> EcologyDefinition.parse(
+                new ResourceLocation("depth_director", "invalid"),
+                JsonParser.parseString(prefix
+                        + "{\"entity\":\"example:bad\",\"role\":\"common\","
+                        + "\"maximum_per_packet\":-1}]}" ).getAsJsonObject()));
+    }
+
+    @Test
+    void eachSyntheticNoiseEcologyOwnsMeaningfulTerritory() {
+        Map<String, Integer> primaryCounts = new LinkedHashMap<>();
+        ECOLOGIES.keySet().forEach(name -> primaryCounts.put(name, 0));
+        int samples = 0;
+        for (int x = -48; x <= 48; x++) {
+            for (int z = -48; z <= 48; z++) {
+                double sampleX = x * 64.0;
+                double sampleZ = z * 64.0;
+                EcologyDefinition primary = ECOLOGIES.values().stream().max(Comparator.comparingDouble(ecology ->
+                        EcologyNoise.sample(0x5EEDL, ecology.id(), sampleX, sampleZ, ecology.noiseScale())))
+                        .orElseThrow();
+                primaryCounts.merge(primary.id().getPath(), 1, Integer::sum);
+                samples++;
+            }
+        }
+        int total = samples;
+        primaryCounts.forEach((name, count) -> assertTrue(count >= total / 10,
+                name + " synthetic territory share is too small: " + count + "/" + total));
     }
 
     private static Timeline timeline(ProfileCase profile, long seed, int[] trajectory, Transport transport) {
@@ -253,26 +330,37 @@ class DirectorSimulationTest {
         int nextPacket = 0;
         int spawnedThisSecond = 0;
         int packetHeavy = 0;
+        Map<ResourceLocation, Integer> packetCounts = new HashMap<>();
+        Map<ResourceLocation, Integer> encounterCounts = new HashMap<>();
         for (int tick = 0; tick < profile.surgeTicks() && remainingBudget > 0 && population < limits.activeTarget(); tick++) {
             if (tick % 20 == 0) spawnedThisSecond = 0;
             if (tick >= nextPacket && queued == 0) {
                 queued = DirectorPolicy.packetSize(population, limits.activeTarget(), 3);
                 assertTrue(queued <= DirectorPolicy.MAX_QUEUED_PER_PLAYER * 3);
                 packetHeavy = 0;
+                packetCounts.clear();
                 nextPacket = tick + profile.packetIntervalTicks();
             }
             int allowance = DirectorPolicy.globalSpawnAllowance(8, 24, spawnedThisSecond, GLOBAL_CAP, population);
             assertTrue(allowance <= 8);
             int spawnedThisTick = 0;
             while (allowance-- > 0 && queued > 0 && remainingBudget > 0) {
+                int availableBudget = remainingBudget;
                 EcologyDefinition.Entry entry = profileCase.ecology == null
                         ? nativeEntry(random, remainingBudget)
                         : profileCase.ecology.pick(random, depth, packetHeavy == 0,
-                        ignored -> true);
+                        ignored -> true, candidate -> candidate.cost() <= availableBudget
+                                && candidate.allowsPacketCount(packetCounts.getOrDefault(candidate.entity(), 0))
+                                && candidate.allowsEncounterCount(
+                                encounterCounts.getOrDefault(candidate.entity(), 0), 3));
                 queued--;
                 if (entry == null || entry.cost() > remainingBudget) continue;
                 if (entry.role() == EcologyDefinition.Role.HEAVY) packetHeavy++;
                 assertTrue(packetHeavy <= 1);
+                packetCounts.merge(entry.entity(), 1, Integer::sum);
+                encounterCounts.merge(entry.entity(), 1, Integer::sum);
+                assertTrue(entry.allowsPacketCount(packetCounts.get(entry.entity()) - 1));
+                assertTrue(entry.allowsEncounterCount(encounterCounts.get(entry.entity()) - 1, 3));
                 remainingBudget -= entry.cost();
                 population++;
                 spawnedThisSecond++;
@@ -310,7 +398,7 @@ class DirectorSimulationTest {
 
     private static Map<String, EcologyDefinition> loadEcologies() {
         Map<String, EcologyDefinition> result = new LinkedHashMap<>();
-        for (String name : List.of("undead", "end", "sculk")) {
+        for (String name : List.of("undead", "carrion", "spirits", "end", "sculk")) {
             String path = "/data/depth_director/director_ecologies/" + name + ".json";
             try (var stream = DirectorSimulationTest.class.getResourceAsStream(path)) {
                 assertNotNull(stream, path);

@@ -23,6 +23,7 @@ import net.minecraftforge.registries.ForgeRegistries;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 final class SpawnLocator {
     static final String PROVENANCE_TAG = "depth_director_spawned";
@@ -47,10 +48,16 @@ final class SpawnLocator {
 
     static SpawnResult spawn(ServerLevel level, List<ServerPlayer> players, EcologyRegistry.Blend blend,
                              double depth, RandomSource random, int sector, boolean allowHeavy, int maximumCost) {
+        return spawn(level, players, blend, depth, random, sector, allowHeavy, maximumCost, ignored -> true);
+    }
+
+    static SpawnResult spawn(ServerLevel level, List<ServerPlayer> players, EcologyRegistry.Blend blend,
+                             double depth, RandomSource random, int sector, boolean allowHeavy, int maximumCost,
+                             Predicate<EcologyDefinition.Entry> selectable) {
         if (players.isEmpty()) return SpawnResult.failed();
         ServerPlayer anchorPlayer = players.get(random.nextInt(players.size()));
         Selection selection = blend == null ? nativeSelection(level, anchorPlayer.blockPosition(), random)
-                : authoredSelection(blend, depth, random, allowHeavy, maximumCost);
+                : authoredSelection(blend, depth, random, allowHeavy, maximumCost, selectable);
         if (selection == null || selection.cost > maximumCost || selection.type.is(DENIED)) return SpawnResult.failed();
         Mob mob = selection.type.create(level) instanceof Mob created ? created : null;
         if (mob == null) return SpawnResult.failed();
@@ -67,7 +74,7 @@ final class SpawnLocator {
                                int maximumCost) {
         if (players.isEmpty()) return SpawnResult.failed();
         Selection selection = blend == null ? nativeSelection(level, position, random)
-                : authoredSelection(blend, depth, random, allowHeavy, maximumCost);
+                : authoredSelection(blend, depth, random, allowHeavy, maximumCost, ignored -> true);
         if (selection == null || selection.cost > maximumCost || selection.type.is(DENIED)) return SpawnResult.failed();
         Mob mob = selection.type.create(level) instanceof Mob created ? created : null;
         if (mob == null) return SpawnResult.failed();
@@ -97,22 +104,22 @@ final class SpawnLocator {
             mob.discard();
             return SpawnResult.failed();
         }
-        return new SpawnResult(true, mob, selection.cost, selection.role);
+        return new SpawnResult(true, mob, selection.entity, selection.cost, selection.role);
     }
 
     private static Selection authoredSelection(EcologyRegistry.Blend blend, double depth, RandomSource random,
-                                               boolean allowHeavy, int maximumCost) {
+                                               boolean allowHeavy, int maximumCost,
+                                               Predicate<EcologyDefinition.Entry> selectable) {
         for (int attempt = 0; attempt < 8; attempt++) {
             EcologyDefinition ecology = blend.choose(random);
             EcologyDefinition.Entry entry = ecology.pick(random, depth, allowHeavy, entity -> {
                 EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(entity);
                 return type != null && type.getCategory() == MobCategory.MONSTER;
-            });
+            }, candidate -> candidate.cost() <= maximumCost && selectable.test(candidate));
             if (entry == null) continue;
-            if (entry.cost() > maximumCost) continue;
             EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(entry.entity());
             if (type != null && type.getCategory() == MobCategory.MONSTER) {
-                return new Selection(type, entry.cost(), entry.role());
+                return new Selection(type, entry.entity(), entry.cost(), entry.role());
             }
         }
         return null;
@@ -131,7 +138,7 @@ final class SpawnLocator {
         preview.discard();
         if (health > 80.0) return null;
         int cost = Math.max(1, Math.min(8, (int) Math.ceil(health / 20.0) + (int) Math.floor(armor / 10.0)));
-        return new Selection(type, cost, EcologyDefinition.Role.LINE);
+        return new Selection(type, ForgeRegistries.ENTITY_TYPES.getKey(type), cost, EcologyDefinition.Role.LINE);
     }
 
     private static Candidate candidate(ServerLevel level, List<ServerPlayer> players, Vec3 anchor,
@@ -224,8 +231,8 @@ final class SpawnLocator {
             return new CandidateValidation(Optional.empty(), rejection);
         }
     }
-    private record Selection(EntityType<?> type, int cost, EcologyDefinition.Role role) {}
-    record SpawnResult(boolean spawned, Mob mob, int cost, EcologyDefinition.Role role) {
-        static SpawnResult failed() { return new SpawnResult(false, null, 0, null); }
+    private record Selection(EntityType<?> type, ResourceLocation entity, int cost, EcologyDefinition.Role role) {}
+    record SpawnResult(boolean spawned, Mob mob, ResourceLocation entity, int cost, EcologyDefinition.Role role) {
+        static SpawnResult failed() { return new SpawnResult(false, null, null, 0, null); }
     }
 }
