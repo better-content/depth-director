@@ -1,0 +1,26 @@
+{
+  "noise_scale": 768,
+  "cadence_seconds": { "minimum": 300, "maximum": 540 },
+  "warning_seconds": { "minimum": 6, "maximum": 20 },
+  "surge_seconds": 60,
+  "recovery_seconds": 120,
+  "deep_budget_per_player": 60,
+  "deep_active_target_per_player": 36,
+  "packet_interval_ticks": 80,
+  "maximize_directions": true,
+  "warning_sounds": [
+    "minecraft:entity.enderman.ambient",
+    "endermanoverhaul:cave_enderman_ambient",
+    "endermanoverhaul:tall_enderman_ambient"
+  ],
+  "roster": [
+    { "entity": "minecraft:endermite", "role": "swarm" },
+    { "entity": "occultism:possessed_endermite", "role": "swarm" },
+    { "entity": "tconstruct:ender_slime", "role": "common", "minimum_depth": 0.15 },
+    { "entity": "minecraft:enderman", "role": "line", "minimum_depth": 0.25 },
+    { "entity": "occultism:possessed_enderman", "role": "line", "minimum_depth": 0.40 },
+    { "entity": "endermanoverhaul:cave_enderman", "role": "line", "minimum_depth": 0.35 },
+    { "entity": "endermanoverhaul:end_enderman", "role": "line", "minimum_depth": 0.55 },
+    { "entity": "endermanoverhaul:end_islands_enderman", "role": "heavy", "minimum_depth": 0.75 }
+  ]
+}

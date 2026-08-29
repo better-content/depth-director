@@ -1,0 +1,26 @@
+{
+  "noise_scale": 768,
+  "cadence_seconds": { "minimum": 180, "maximum": 300 },
+  "warning_seconds": { "minimum": 10, "maximum": 24 },
+  "surge_seconds": 90,
+  "recovery_seconds": 75,
+  "deep_budget_per_player": 72,
+  "deep_active_target_per_player": 36,
+  "packet_interval_ticks": 100,
+  "warning_sounds": [
+    "minecraft:entity.zombie.ambient",
+    "minecraft:entity.skeleton.ambient"
+  ],
+  "roster": [
+    { "entity": "minecraft:zombie", "role": "common" },
+    { "entity": "minecraft:skeleton", "role": "common" },
+    { "entity": "born_in_chaos_v1:decaying_zombie", "role": "common" },
+    { "entity": "born_in_chaos_v1:decrepit_skeleton", "role": "common" },
+    { "entity": "quark:wraith", "role": "line", "minimum_depth": 0.35 },
+    { "entity": "born_in_chaos_v1:dread_hound", "role": "line", "minimum_depth": 0.35 },
+    { "entity": "born_in_chaos_v1:zombie_bruiser", "role": "heavy", "minimum_depth": 0.65 },
+    { "entity": "born_in_chaos_v1:skeleton_thrasher", "role": "heavy", "minimum_depth": 0.65 },
+    { "entity": "quark:forgotten", "role": "heavy", "minimum_depth": 0.82 },
+    { "entity": "born_in_chaos_v1:siamese_skeletons", "role": "heavy", "minimum_depth": 0.82 }
+  ]
+}

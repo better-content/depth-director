@@ -1,0 +1,21 @@
+{
+  "noise_scale": 768,
+  "cadence_seconds": { "minimum": 420, "maximum": 660 },
+  "warning_seconds": { "minimum": 15, "maximum": 30 },
+  "surge_seconds": 120,
+  "recovery_seconds": 180,
+  "deep_budget_per_player": 90,
+  "deep_active_target_per_player": 40,
+  "packet_interval_ticks": 120,
+  "warning_sounds": [
+    "deeperdarker:entity.snapper.ambient",
+    "deeperdarker:entity.shattered.notice"
+  ],
+  "roster": [
+    { "entity": "deeperdarker:sculk_leech", "role": "swarm" },
+    { "entity": "deeperdarker:sculk_snapper", "role": "swarm" },
+    { "entity": "deeperdarker:sludge", "role": "line", "minimum_depth": 0.25 },
+    { "entity": "deeperdarker:sculk_centipede", "role": "line", "minimum_depth": 0.45 },
+    { "entity": "deeperdarker:shattered", "role": "heavy", "minimum_depth": 0.75 }
+  ]
+}
