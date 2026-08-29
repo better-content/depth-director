@@ -11,18 +11,25 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.MobSpawnType;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.biome.MobSpawnSettings;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.ForgeEventFactory;
+import net.minecraftforge.event.entity.living.MobSpawnEvent;
+import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 final class SpawnLocator {
@@ -30,6 +37,7 @@ final class SpawnLocator {
     static final String PROVENANCE_NBT = "DepthDirectorSpawned";
     static final TagKey<EntityType<?>> DENIED = TagKey.create(Registries.ENTITY_TYPE,
             new ResourceLocation(DepthDirectorMod.MOD_ID, "denied"));
+    private static final UUID APPROACH_RANGE_MODIFIER = UUID.fromString("6628878d-4b58-4431-b877-baa7027270bc");
 
     private SpawnLocator() {}
 
@@ -41,6 +49,7 @@ final class SpawnLocator {
         if (players.isEmpty()) return Optional.empty();
         Mob probe = EntityType.ZOMBIE.create(level);
         if (probe == null) return Optional.empty();
+        ensureApproachRange(probe);
         Candidate candidate = candidate(level, players, players.get(random.nextInt(players.size())).position(), random, -1, probe);
         probe.discard();
         return candidate == null ? Optional.empty() : Optional.of(candidate.position);
@@ -61,6 +70,7 @@ final class SpawnLocator {
         if (selection == null || selection.cost > maximumCost || selection.type.is(DENIED)) return SpawnResult.failed();
         Mob mob = selection.type.create(level) instanceof Mob created ? created : null;
         if (mob == null) return SpawnResult.failed();
+        ensureApproachRange(mob);
         Candidate candidate = candidate(level, players, anchorPlayer.position(), random, sector, mob);
         if (candidate == null) {
             mob.discard();
@@ -78,6 +88,7 @@ final class SpawnLocator {
         if (selection == null || selection.cost > maximumCost || selection.type.is(DENIED)) return SpawnResult.failed();
         Mob mob = selection.type.create(level) instanceof Mob created ? created : null;
         if (mob == null) return SpawnResult.failed();
+        ensureApproachRange(mob);
         Candidate candidate = validateCandidate(level, players, position, mob).orElse(null);
         if (candidate == null) {
             mob.discard();
@@ -90,7 +101,7 @@ final class SpawnLocator {
                                            Mob mob, RandomSource random) {
         mob.moveTo(candidate.position.getX() + 0.5, candidate.position.getY(), candidate.position.getZ() + 0.5,
                 random.nextFloat() * 360.0F, 0.0F);
-        if (!ForgeEventFactory.checkSpawnPosition(mob, level, MobSpawnType.EVENT)
+        if (!eventSpawnPositionAllowed(mob, level)
                 || !level.noCollision(mob) || !level.getWorldBorder().isWithinBounds(mob.getBoundingBox())) {
             mob.discard();
             return SpawnResult.failed();
@@ -104,7 +115,27 @@ final class SpawnLocator {
             mob.discard();
             return SpawnResult.failed();
         }
+        mob.setTarget(candidate.target);
         return new SpawnResult(true, mob, selection.entity, selection.cost, selection.role);
+    }
+
+    private static void ensureApproachRange(Mob mob) {
+        AttributeInstance followRange = mob.getAttribute(Attributes.FOLLOW_RANGE);
+        if (followRange == null) return;
+        followRange.removeModifier(APPROACH_RANGE_MODIFIER);
+        double required = DirectorConfig.SPAWN_MAXIMUM_RADIUS.get() + 8.0;
+        double addition = required - followRange.getValue();
+        if (addition > 0.0) {
+            followRange.addPermanentModifier(new AttributeModifier(APPROACH_RANGE_MODIFIER,
+                    "Depth Director approach range", addition, AttributeModifier.Operation.ADDITION));
+        }
+    }
+
+    private static boolean eventSpawnPositionAllowed(Mob mob, ServerLevel level) {
+        MobSpawnEvent.PositionCheck event = new MobSpawnEvent.PositionCheck(mob, level, MobSpawnType.EVENT, null);
+        MinecraftForge.EVENT_BUS.post(event);
+        if (event.getResult() == Event.Result.DENY) return false;
+        return event.getResult() == Event.Result.ALLOW || mob.checkSpawnObstruction(level);
     }
 
     private static Selection authoredSelection(EcologyRegistry.Blend blend, double depth, RandomSource random,

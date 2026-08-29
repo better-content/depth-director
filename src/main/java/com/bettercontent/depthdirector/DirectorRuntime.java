@@ -49,6 +49,11 @@ final class DirectorRuntime {
         roundRobinOffset = 0;
     }
 
+    void reset(long seed) {
+        reset();
+        random.setSeed(seed);
+    }
+
     void tick(MinecraftServer server) {
         long now = server.overworld().getGameTime();
         if (now % 20L == 0L) {
