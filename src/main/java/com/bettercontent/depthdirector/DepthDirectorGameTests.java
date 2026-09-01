@@ -122,17 +122,16 @@ public final class DepthDirectorGameTests {
                 shaft.add(new SavedBlock(position, helper.getLevel().getBlockState(position)));
                 helper.getLevel().setBlockAndUpdate(position, Blocks.AIR.defaultBlockState());
             }
-            helper.runAfterDelay(10, () -> {
-                boolean seesSky = helper.getLevel().canSeeSky(absoluteSpawn);
-                SpawnLocator.Rejection rejection = rejection(helper, player);
+            helper.succeedWhen(() -> {
+                helper.assertTrue(helper.getLevel().canSeeSky(absoluteSpawn),
+                        "removing the roof and overburden must admit skylight");
+                helper.assertTrue(rejection(helper, player) == SpawnLocator.Rejection.LIT,
+                        "skylight must be the rejection reason");
                 for (int index = shaft.size() - 1; index >= 0; index--) {
                     SavedBlock saved = shaft.get(index);
                     helper.getLevel().setBlockAndUpdate(saved.position(), saved.state());
                 }
-                helper.assertTrue(seesSky, "removing the roof and overburden must admit skylight");
-                helper.assertTrue(rejection == SpawnLocator.Rejection.LIT,
-                        "skylight must be the rejection reason");
-                finish(helper, player);
+                buildFixture(helper);
             });
         });
     }
