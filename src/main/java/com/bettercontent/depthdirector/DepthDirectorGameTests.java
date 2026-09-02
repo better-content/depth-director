@@ -37,7 +37,8 @@ public final class DepthDirectorGameTests {
         int originalSurface = helper.getLevel().getHeight(
                 net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 column.getX(), column.getZ());
-        BlockPos raisedSurfaceBlock = new BlockPos(column.getX(), originalSurface + 12, column.getZ());
+        int raisedY = Math.min(originalSurface + 12, helper.getLevel().getMaxBuildHeight() - 1);
+        BlockPos raisedSurfaceBlock = new BlockPos(column.getX(), raisedY, column.getZ());
         helper.getLevel().setBlockAndUpdate(raisedSurfaceBlock, Blocks.STONE.defaultBlockState());
         helper.runAfterDelay(1, () -> {
             int surface = helper.getLevel().getHeight(
