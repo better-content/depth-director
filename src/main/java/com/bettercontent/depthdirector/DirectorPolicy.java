@@ -11,6 +11,7 @@ final class DirectorPolicy {
     static final int NATIVE_DEEP_ACTIVE = 36;
     static final int NATIVE_PACKET_INTERVAL = 100;
     static final int MAX_QUEUED_PER_PLAYER = 6;
+    static final int PACKET_TELEGRAPH_TICKS = 40;
 
     private DirectorPolicy() {}
 
@@ -53,6 +54,10 @@ final class DirectorPolicy {
 
     static int packetInterval(int baseTicks, double healthRatio, double distressThreshold) {
         return Math.max(1, baseTicks) * (healthRatio < distressThreshold ? 3 : 1);
+    }
+
+    static boolean packetTelegraphComplete(long now, long telegraphUntil) {
+        return telegraphUntil >= 0L && now >= telegraphUntil;
     }
 
     static int globalSpawnAllowance(int tickLimit, int secondLimit, int spawnedThisSecond,

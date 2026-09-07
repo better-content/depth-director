@@ -1,6 +1,8 @@
 package com.bettercontent.depthdirector;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.BlockParticleOption;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -12,6 +14,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -209,6 +212,7 @@ final class DirectorRuntime {
                     encounter.phase = next;
                     encounter.queuedSpawns = DirectorPolicy.queuedWorkAfterTransition(encounter.queuedSpawns, next);
                     encounter.remainingBudget = 0;
+                    cancelPacketTelegraph(encounter);
                     continue;
                 }
                 if (next == DirectorPolicy.Phase.RECOVERY) {
@@ -224,12 +228,18 @@ final class DirectorRuntime {
                 int active = activeNear(server, underground);
                 int interval = DirectorPolicy.packetInterval(encounter.profile.packetIntervalTicks(),
                         healthRatio(underground), DISTRESS_HEALTH);
-                if (now >= encounter.nextPacket && active < activeLimit && encounter.queuedSpawns == 0) {
-                    int packet = DirectorPolicy.packetSize(active, activeLimit, underground.size());
-                    encounter.queuedSpawns = packet;
-                    encounter.heavySpawnedInPacket = false;
-                    encounter.packetCounts.clear();
-                    encounter.nextPacket = now + interval;
+                if (encounter.packetTelegraphUntil >= 0L) {
+                    playPacketTelegraph(underground.get(0).serverLevel(), underground, encounter, now);
+                    if (DirectorPolicy.packetTelegraphComplete(now, encounter.packetTelegraphUntil)) {
+                        int packet = DirectorPolicy.packetSize(active, activeLimit, underground.size());
+                        encounter.queuedSpawns = packet;
+                        encounter.heavySpawnedInPacket = false;
+                        encounter.packetCounts.clear();
+                        encounter.nextPacket = now + interval;
+                        cancelPacketTelegraph(encounter);
+                    }
+                } else if (now >= encounter.nextPacket && active < activeLimit && encounter.queuedSpawns == 0) {
+                    beginPacketTelegraph(underground.get(0).serverLevel(), underground, encounter, now);
                 }
                 continue;
             }
@@ -294,9 +304,51 @@ final class DirectorRuntime {
         });
     }
 
+    private void beginPacketTelegraph(ServerLevel level, List<ServerPlayer> players, Encounter encounter, long now) {
+        SpawnLocator.approach(level, players, random).ifPresent(position -> {
+            encounter.packetTelegraphPosition = position;
+            encounter.packetTelegraphUntil = now + DirectorPolicy.PACKET_TELEGRAPH_TICKS;
+            playEcologySound(level, position, encounter);
+            playPacketTelegraph(level, players, encounter, now);
+        });
+    }
+
+    private void playPacketTelegraph(ServerLevel level, List<ServerPlayer> players, Encounter encounter, long now) {
+        BlockPos approach = encounter.packetTelegraphPosition;
+        if (approach == null || encounter.packetTelegraphUntil < 0L) return;
+        if ((encounter.packetTelegraphUntil - now) % 10L == 0L) {
+            level.playSound(null, approach, net.minecraft.sounds.SoundEvents.RAVAGER_STEP,
+                    SoundSource.HOSTILE, 1.15F, 0.55F);
+        }
+        if (now % 4L == 0L) {
+            BlockParticleOption debris = new BlockParticleOption(ParticleTypes.FALLING_DUST,
+                    Blocks.STONE.defaultBlockState());
+            for (ServerPlayer player : players) {
+                level.sendParticles(player, debris, true, player.getX(), player.getY() + 2.2,
+                        player.getZ(), 3, 1.4, 0.25, 1.4, 0.02);
+            }
+        }
+    }
+
+    private void playEcologySound(ServerLevel level, BlockPos position, Encounter encounter) {
+        List<ResourceLocation> sounds = encounter.blend == null
+                ? List.of(new ResourceLocation("minecraft", "entity.zombie.ambient"))
+                : encounter.blend.choose(random).warningSounds();
+        if (sounds.isEmpty()) return;
+        SoundEvent sound = ForgeRegistries.SOUND_EVENTS.getValue(sounds.get(random.nextInt(sounds.size())));
+        if (sound != null) level.playSound(null, position, sound, SoundSource.HOSTILE,
+                0.9F, 0.75F + random.nextFloat() * 0.15F);
+    }
+
+    private static void cancelPacketTelegraph(Encounter encounter) {
+        encounter.packetTelegraphUntil = -1L;
+        encounter.packetTelegraphPosition = null;
+    }
+
     private void beginRecovery(MinecraftServer server, Encounter encounter, long now) {
         encounter.phase = DirectorPolicy.Phase.RECOVERY;
         encounter.queuedSpawns = DirectorPolicy.queuedWorkAfterTransition(encounter.queuedSpawns, encounter.phase);
+        cancelPacketTelegraph(encounter);
         encounter.phaseUntil = now + encounter.profile.recoveryTicks();
         DirectorSavedData data = DirectorSavedData.get(server);
         encounter.participants.forEach(player -> data.track(player).recoveryUntil(encounter.phaseUntil));
@@ -425,6 +477,8 @@ final class DirectorRuntime {
         private int queuedSpawns;
         private int nextSector;
         private boolean heavySpawnedInPacket;
+        private long packetTelegraphUntil = -1L;
+        private BlockPos packetTelegraphPosition;
         private final Map<ResourceLocation, Integer> packetCounts = new HashMap<>();
         private final Map<ResourceLocation, Integer> encounterCounts = new HashMap<>();
 

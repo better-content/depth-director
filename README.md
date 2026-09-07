@@ -13,6 +13,11 @@ The runtime has no Rail Crawler, Epic Fight, Tinkers' Construct, or mob-mod API
 dependency. The pack includes Downed Player Revival; the Director detects it at runtime
 and pauses a surge for rescue without coupling its core logic to that mod.
 
+Every surge packet now has a 40-tick diegetic telegraph before spawning: the selected ecology
+sounds from the approach direction while low rumbles and harmless falling-stone debris cue nearby
+participants. The telegraph queues no mobs until it completes and is cancelled if the encounter
+enters rescue, recovery, retirement, or loses its eligible players.
+
 The built-in catalogue is split into five synthetic cave ecologies: undead, carrion,
 spirits, sculk, and end. Director rosters intentionally exclude the base
 `minecraft:zombie` and `minecraft:skeleton`. Optional entity IDs are resolved at spawn

@@ -17,6 +17,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -191,6 +192,16 @@ class DirectorSimulationTest {
             assertTrue(packetHeavy <= 1);
         }
         assertTrue(heavy > 0, "the seeded corpus must exercise heavy selection");
+    }
+
+    @Test
+    void packetTelegraphIsExactlyFortyTicks() {
+        long start = 12_345L;
+        long until = start + DirectorPolicy.PACKET_TELEGRAPH_TICKS;
+        assertFalse(DirectorPolicy.packetTelegraphComplete(start, until));
+        assertFalse(DirectorPolicy.packetTelegraphComplete(until - 1L, until));
+        assertTrue(DirectorPolicy.packetTelegraphComplete(until, until));
+        assertEquals(40L, until - start);
     }
 
     @Test
