@@ -1,13 +1,17 @@
 package com.bettercontent.depthdirector;
 
 import com.mojang.authlib.GameProfile;
+import io.netty.channel.embedded.EmbeddedChannel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.pathfinder.Path;
@@ -199,6 +203,54 @@ public final class DepthDirectorGameTests {
         });
     }
 
+    @GameTest(templateNamespace = DepthDirectorMod.MOD_ID, template = TEMPLATE, timeoutTicks = 800)
+    public static void authoredDirectorMobCanKillFullHealthSurvivalPlayer(GameTestHelper helper) {
+        buildFixture(helper);
+        ServerPlayer player = registeredPlayer(helper, PLAYER);
+        helper.runAfterDelay(10, () -> {
+            EcologyDefinition loaded = EcologyRegistry.INSTANCE.definitions().get(id("sculk"));
+            helper.assertTrue(loaded != null, "sculk ecology must be loaded");
+            EcologyDefinition.Entry spider = loaded == null ? null : loaded.roster().stream()
+                    .filter(entry -> entry.entity().equals(EntityType.getKey(EntityType.SPIDER)))
+                    .findFirst().orElse(null);
+            helper.assertTrue(spider != null, "the authored sculk ecology must contain its real spider entry");
+            EcologyDefinition spiderOnly = new EcologyDefinition(loaded.id(), loaded.noiseScale(),
+                    loaded.cadenceMinimumSeconds(), loaded.cadenceMaximumSeconds(), loaded.warningMinimumSeconds(),
+                    loaded.warningMaximumSeconds(), loaded.surgeSeconds(), loaded.recoverySeconds(),
+                    loaded.deepBudgetPerPlayer(), loaded.deepActiveTargetPerPlayer(), loaded.packetIntervalTicks(),
+                    loaded.maximizeDirections(), loaded.warningSounds(), List.of(spider));
+            SpawnLocator.SpawnResult result = SpawnLocator.spawnAt(helper.getLevel(), List.of(player),
+                    new EcologyRegistry.Blend(spiderOnly, null, 0.0), 1.0, RandomSource.create(72L),
+                    helper.absolutePos(SPAWN), true, 8);
+            helper.assertTrue(result.spawned(), "authored Director spider must EVENT-spawn in valid wave geometry");
+            helper.assertTrue(result.mob() != null && result.mob().getType() == EntityType.SPIDER,
+                    "the real authored sculk entry must produce a spider");
+            helper.assertTrue(result.mob() != null && result.mob().getTarget() == player,
+                    "the wave mob must begin with the registered player as its target");
+            helper.assertTrue(player.gameMode.getGameModeForPlayer() == GameType.SURVIVAL,
+                    "the registered combat target must be in survival mode");
+            helper.assertTrue(!player.isInvulnerable() && player.getArmorValue() == 0,
+                    "the registered combat target must be ordinarily vulnerable and unarmored");
+            helper.assertTrue(player.getHealth() == player.getMaxHealth(),
+                    "the registered combat target must begin at full health");
+
+            long combatStarted = helper.getTick();
+            helper.succeedWhen(() -> {
+                helper.assertTrue(!player.isAlive(), "authored Director spider has not killed the player; health="
+                        + player.getHealth() + " target=" + (result.mob() == null ? "missing" : result.mob().getTarget()));
+                helper.assertTrue(player.getLastDamageSource() != null
+                                && player.getLastDamageSource().getEntity() == result.mob(),
+                        "the authored Director spider must be the player's lethal damage source");
+                DepthDirectorMod.LOGGER.info(
+                        "Director lethal-wave qualification passed: minecraft:spider killed a full-health unarmored survival player in {} ticks",
+                        helper.getTick() - combatStarted);
+                if (result.mob() != null) result.mob().discard();
+                helper.getLevel().getServer().getPlayerList().remove(player);
+                buildFixture(helper);
+            });
+        });
+    }
+
     private static SpawnLocator.Rejection rejection(GameTestHelper helper, ServerPlayer player) {
         Mob zombie = zombie(helper);
         SpawnLocator.Rejection rejection = SpawnLocator.inspectCandidate(helper.getLevel(), List.of(player),
@@ -228,6 +280,22 @@ public final class DepthDirectorGameTests {
                         java.nio.charset.StandardCharsets.UTF_8)), "director-test-player"));
         Vec3 position = helper.absoluteVec(Vec3.atBottomCenterOf(relativePosition));
         player.setPos(position.x, position.y, position.z);
+        return player;
+    }
+
+    private static ServerPlayer registeredPlayer(GameTestHelper helper, BlockPos relativePosition) {
+        ServerPlayer player = new ServerPlayer(helper.getLevel().getServer(), helper.getLevel(),
+                new GameProfile(UUID.randomUUID(), "director-lethal"));
+        Vec3 position = helper.absoluteVec(Vec3.atBottomCenterOf(relativePosition));
+        player.setPos(position.x, position.y, position.z);
+        Connection connection = new Connection(PacketFlow.SERVERBOUND);
+        new EmbeddedChannel(connection);
+        helper.getLevel().getServer().getPlayerList().placeNewPlayer(connection, player);
+        player.setGameMode(GameType.SURVIVAL);
+        player.setInvulnerable(false);
+        player.setHealth(player.getMaxHealth());
+        player.setPos(position.x, position.y, position.z);
+        player.setDeltaMovement(Vec3.ZERO);
         return player;
     }
 
