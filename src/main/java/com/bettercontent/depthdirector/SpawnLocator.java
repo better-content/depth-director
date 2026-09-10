@@ -119,7 +119,7 @@ final class SpawnLocator {
         return new SpawnResult(true, mob, selection.entity, selection.cost, selection.role);
     }
 
-    private static void ensureApproachRange(Mob mob) {
+    static void ensureApproachRange(Mob mob) {
         AttributeInstance followRange = mob.getAttribute(Attributes.FOLLOW_RANGE);
         if (followRange == null) return;
         followRange.removeModifier(APPROACH_RANGE_MODIFIER);
@@ -131,7 +131,7 @@ final class SpawnLocator {
         }
     }
 
-    private static boolean eventSpawnPositionAllowed(Mob mob, ServerLevel level) {
+    static boolean eventSpawnPositionAllowed(Mob mob, ServerLevel level) {
         MobSpawnEvent.PositionCheck event = new MobSpawnEvent.PositionCheck(mob, level, MobSpawnType.EVENT, null);
         MinecraftForge.EVENT_BUS.post(event);
         if (event.getResult() == Event.Result.DENY) return false;

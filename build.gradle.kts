@@ -71,12 +71,20 @@ repositories {
         metadataSources { artifact() }
         content { includeGroup("worldtest.enderman") }
     }
+    ivy {
+        name = "downedPlayerRevivalLocal"
+        url = uri("../downed-player-revival/build/libs")
+        patternLayout { artifact("[artifact]-[revision].[ext]") }
+        metadataSources { artifact() }
+        content { includeGroup("bettercontent.local") }
+    }
     mavenCentral()
 }
 
 dependencies {
     minecraft("net.minecraftforge:forge:${property("minecraft_version")}-${property("forge_version")}")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    compileOnly(fg.deobf("bettercontent.local:downed-player-revival:1.0.0"))
 
     add("worldGameTestRuntimeOnly", fg.deobf("curse.maven:born-in-chaos-686437:7917933"))
     add("worldGameTestRuntimeOnly", fg.deobf("curse.maven:goety-586095:8087429"))
@@ -93,6 +101,7 @@ dependencies {
             "com.teamresourceful.resourcefulconfig:resourcefulconfig-forge-1.20.1:2.1.3"))
     add("worldGameTestRuntimeOnly", fg.deobf(
             "worldtest.enderman:endermanoverhaul-forge-1.20.1-1.0.4:yjxych8u@jar"))
+    add("worldGameTestRuntimeOnly", fg.deobf("bettercontent.local:downed-player-revival:1.0.0"))
 }
 
 tasks.processResources {

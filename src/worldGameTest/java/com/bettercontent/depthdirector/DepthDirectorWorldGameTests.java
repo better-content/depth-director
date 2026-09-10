@@ -1,6 +1,7 @@
 package com.bettercontent.depthdirector.worldtest;
 
 import com.bettercontent.depthdirector.DepthDirectorMod;
+import com.bettercontent.depthdirector.DepthDirectorDiagnostics;
 import com.bettercontent.depthdirector.DepthMath;
 import com.bettercontent.depthdirector.DirectorSavedData;
 import com.bettercontent.depthdirector.EcologyDefinition;
@@ -30,8 +31,6 @@ import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import net.minecraftforge.registries.ForgeRegistries;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -575,117 +574,48 @@ public final class DepthDirectorWorldGameTests {
     }
 
     private static final class ProductionAccess {
-        private static final Object RUNTIME = staticField("com.bettercontent.depthdirector.DirectorRuntime", "INSTANCE");
-        private static final Class<?> RUNTIME_CLASS = RUNTIME.getClass();
-        private static final Class<?> SPAWN_CLASS = type("com.bettercontent.depthdirector.SpawnLocator");
-        private static final Class<?> POLICY_CLASS = type("com.bettercontent.depthdirector.DirectorPolicy");
-        private static final String PROVENANCE_TAG = (String) staticField(SPAWN_CLASS, "PROVENANCE_TAG");
-        private static final String PROVENANCE_NBT = (String) staticField(SPAWN_CLASS, "PROVENANCE_NBT");
+        private static final String PROVENANCE_TAG = DepthDirectorDiagnostics.PROVENANCE_TAG;
+        private static final String PROVENANCE_NBT = DepthDirectorDiagnostics.PROVENANCE_NBT;
 
         private ProductionAccess() {}
 
         private static void reset(long seed) {
-            invoke(RUNTIME, method(RUNTIME_CLASS, "reset", long.class), seed);
+            DepthDirectorDiagnostics.reset(seed);
         }
 
         private static void reset() {
-            invoke(RUNTIME, method(RUNTIME_CLASS, "reset"));
+            DepthDirectorDiagnostics.reset();
         }
 
         private static String inspect(ServerPlayer player) {
-            return (String) invoke(RUNTIME, method(RUNTIME_CLASS, "inspect", ServerPlayer.class), player);
+            return DepthDirectorDiagnostics.inspect(player);
         }
 
         private static void playerDied(net.minecraft.server.MinecraftServer server, java.util.UUID player) {
-            invoke(RUNTIME, method(RUNTIME_CLASS, "playerDied",
-                    net.minecraft.server.MinecraftServer.class, java.util.UUID.class), server, player);
+            DepthDirectorDiagnostics.playerDied(server, player);
         }
 
         private static void removeMob(java.util.UUID mob) {
-            invoke(RUNTIME, method(RUNTIME_CLASS, "removeMob", java.util.UUID.class), mob);
+            DepthDirectorDiagnostics.removeMob(mob);
         }
 
         private static double cadenceSeconds(int minimum, int maximum, double jitter) {
-            return (double) invoke(null, method(POLICY_CLASS, "cadenceSeconds",
-                    int.class, int.class, double.class), minimum, maximum, jitter);
+            return DepthDirectorDiagnostics.cadenceSeconds(minimum, maximum, jitter);
         }
 
         private static WorldSpawn spawnAt(ServerLevel level, List<ServerPlayer> players,
                                           EcologyRegistry.Blend blend, double depth, RandomSource random,
                                           BlockPos position, boolean allowHeavy, int maximumCost) {
-            Object result = invoke(null, method(SPAWN_CLASS, "spawnAt", ServerLevel.class, List.class,
-                    EcologyRegistry.Blend.class, double.class, RandomSource.class, BlockPos.class,
-                    boolean.class, int.class), level, players, blend, depth, random, position, allowHeavy, maximumCost);
-            Class<?> resultClass = result.getClass();
-            return new WorldSpawn((boolean) invoke(result, method(resultClass, "spawned")),
-                    (Mob) invoke(result, method(resultClass, "mob")),
-                    (ResourceLocation) invoke(result, method(resultClass, "entity")));
+            DepthDirectorDiagnostics.SpawnOutcome result = DepthDirectorDiagnostics.spawnAt(
+                    level, players, blend, depth, random, position, allowHeavy, maximumCost);
+            return new WorldSpawn(result.spawned(), result.mob(), result.entity());
         }
 
         private static String diagnose(ServerLevel level, List<ServerPlayer> players,
                                        ResourceLocation entity, BlockPos position) {
-            EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(entity);
-            Mob mob = type == null ? null : type.create(level) instanceof Mob created ? created : null;
-            if (mob == null) return "entity does not create a Mob";
-            try {
-                invoke(null, method(SPAWN_CLASS, "ensureApproachRange", Mob.class), mob);
-                Object validation = invoke(null, method(SPAWN_CLASS, "inspectCandidate", ServerLevel.class,
-                        List.class, BlockPos.class, Mob.class), level, players, position, mob);
-                Object rejection = invoke(validation, method(validation.getClass(), "rejection"));
-                if (!"NONE".equals(rejection.toString())) return "candidate rejection=" + rejection;
-                mob.moveTo(position.getX() + 0.5, position.getY(), position.getZ() + 0.5, 0.0F, 0.0F);
-                boolean eventPosition = (boolean) invoke(null, method(SPAWN_CLASS,
-                        "eventSpawnPositionAllowed", Mob.class, ServerLevel.class), mob, level);
-                return "candidate accepted, eventPosition=" + eventPosition
-                        + ", collisionFree=" + level.noCollision(mob)
-                        + ", inBorder=" + level.getWorldBorder().isWithinBounds(mob.getBoundingBox());
-            } finally {
-                mob.discard();
-            }
+            return DepthDirectorDiagnostics.diagnose(level, players, entity, position);
         }
 
-        private static Class<?> type(String name) {
-            try {
-                return Class.forName(name);
-            } catch (ReflectiveOperationException exception) {
-                throw new IllegalStateException("cannot load production Director class " + name, exception);
-            }
-        }
-
-        private static Object staticField(String type, String name) {
-            return staticField(type(type), name);
-        }
-
-        private static Object staticField(Class<?> type, String name) {
-            try {
-                Field field = type.getDeclaredField(name);
-                field.setAccessible(true);
-                return field.get(null);
-            } catch (ReflectiveOperationException exception) {
-                throw new IllegalStateException("cannot access production field " + type.getName() + "." + name, exception);
-            }
-        }
-
-        private static Method method(Class<?> type, String name, Class<?>... parameters) {
-            try {
-                Method method = type.getDeclaredMethod(name, parameters);
-                method.setAccessible(true);
-                return method;
-            } catch (ReflectiveOperationException exception) {
-                throw new IllegalStateException("cannot access production method " + type.getName() + "." + name, exception);
-            }
-        }
-
-        private static Object invoke(Object target, Method method, Object... arguments) {
-            try {
-                return method.invoke(target, arguments);
-            } catch (ReflectiveOperationException exception) {
-                Throwable cause = exception.getCause();
-                if (cause instanceof RuntimeException runtime) throw runtime;
-                throw new IllegalStateException("production Director call failed: " + method,
-                        cause == null ? exception : cause);
-            }
-        }
     }
 
     private record Xz(int x, int z) {}
