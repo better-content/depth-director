@@ -221,7 +221,7 @@ final class SpawnLocator {
         if (visibleToAny(level, position, players)) {
             return CandidateValidation.rejected(Rejection.VISIBLE);
         }
-        ServerPlayer target = players.stream().filter(player -> player.isAlive() && !DownedCompat.isDowned(player))
+        ServerPlayer target = players.stream().filter(player -> player.isAlive())
                 .min(Comparator.comparingDouble(player -> player.distanceToSqr(Vec3.atCenterOf(position))))
                 .orElse(null);
         if (target == null) return CandidateValidation.rejected(Rejection.NO_TARGET);

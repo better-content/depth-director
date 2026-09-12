@@ -10,13 +10,13 @@ Overworld territories are selected only from deterministic world-seed noise and 
 position. They never inspect or target Minecraft biome IDs.
 
 The runtime has no Rail Crawler, Epic Fight, Tinkers' Construct, or mob-mod API
-dependency. The pack includes Downed Player Revival; the Director detects it at runtime
-and pauses a surge for rescue without coupling its core logic to that mod.
+dependency. The pack includes Death’s Door in Downed Player Revival; the Director reads its injury authority at runtime
+and scales encounter pacing from active injuries without coupling its core policy to that mod.
 
 Every surge packet now has a 40-tick diegetic telegraph before spawning: the selected ecology
 sounds from the approach direction while low rumbles and harmless falling-stone debris cue nearby
 participants. The telegraph queues no mobs until it completes and is cancelled if the encounter
-enters rescue, recovery, retirement, or loses its eligible players.
+enters recovery or retirement, or loses its eligible players.
 
 The built-in catalogue is split into five synthetic cave ecologies: undead, carrion,
 spirits, sculk, and end. Director rosters intentionally exclude the base
@@ -39,3 +39,6 @@ real hidden route, and spawn only the territory's allocated mobs with provenance
 targeting intact. All cohorts run concurrently and cover about 61 minutes of in-game
 time; Forge's GameTest server may advance those ticks faster than wall time. The lane is
 intentionally excluded from `check`, `verifyFast`, `verifyFull`, and normal builds.
+
+### Injury pacing
+The average active maim count across participating players scales pressure buildup by `1 / (1 + averageMaims / 3)` and reinforcement intervals by its inverse. Healing HP does not remove this scaling. Semantic zero HP retains the ordinary low-health distress rules. Injuries do not cancel encounters, clear budgets, remove queued work, or exclude players from targeting.

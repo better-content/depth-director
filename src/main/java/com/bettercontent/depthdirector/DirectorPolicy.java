@@ -20,11 +20,11 @@ final class DirectorPolicy {
     }
 
     static double advancePressure(double pressure, double depth, double cadenceSeconds, boolean eligible,
-                                  boolean routeSecured, boolean distressed, boolean downed,
+                                  boolean routeSecured, boolean distressed, double averageActiveMaims,
                                   boolean recovering, boolean onSurface, int surfaceDecaySeconds) {
         if (onSurface) return DepthMath.clamp(pressure - 1.0 / Math.max(1, surfaceDecaySeconds), 0.0, 1.0);
-        if (!eligible || routeSecured || distressed || downed || recovering) return DepthMath.clamp(pressure, 0.0, 1.0);
-        return DepthMath.clamp(pressure + depth / Math.max(1.0, cadenceSeconds), 0.0, 1.0);
+        if (!eligible || routeSecured || distressed || recovering) return DepthMath.clamp(pressure, 0.0, 1.0);
+        return DepthMath.clamp(pressure + injuryRate(averageActiveMaims) * depth / Math.max(1.0, cadenceSeconds), 0.0, 1.0);
     }
 
     static int routeFailures(int current, boolean probeDue, boolean routeOpen) {
@@ -52,8 +52,14 @@ final class DirectorPolicy {
         return Math.max(0, Math.min(activeTarget - active, MAX_QUEUED_PER_PLAYER * Math.max(0, playerCount)));
     }
 
-    static int packetInterval(int baseTicks, double healthRatio, double distressThreshold) {
-        return Math.max(1, baseTicks) * (healthRatio < distressThreshold ? 3 : 1);
+    static double injuryRate(double averageActiveMaims) {
+        return 1.0 / (1.0 + Math.max(0.0, averageActiveMaims) / 3.0);
+    }
+
+    static int packetInterval(int baseTicks, double healthRatio, double distressThreshold, double averageActiveMaims) {
+        double interval = Math.max(1, baseTicks) * (healthRatio < distressThreshold ? 3.0 : 1.0)
+                / injuryRate(averageActiveMaims);
+        return (int) Math.min(Integer.MAX_VALUE, Math.ceil(interval));
     }
 
     static boolean packetTelegraphComplete(long now, long telegraphUntil) {
@@ -74,18 +80,16 @@ final class DirectorPolicy {
     }
 
     static int queuedWorkAfterTransition(int queuedWork, Phase phase) {
-        return phase == Phase.RESCUE || phase == Phase.RECOVERY || phase == Phase.RETIRED
+        return phase == Phase.RECOVERY || phase == Phase.RETIRED
                 ? 0 : Math.max(0, queuedWork);
     }
 
     static Phase transition(Phase phase, long now, long phaseUntil, boolean hasEligiblePlayers,
-                            boolean routeOpen, boolean downed, int remainingBudget) {
+                            boolean routeOpen, int remainingBudget) {
         return switch (phase) {
             case WARNING -> now < phaseUntil ? Phase.WARNING
                     : hasEligiblePlayers && routeOpen ? Phase.SURGE : Phase.RETIRED;
-            case SURGE -> downed ? Phase.RESCUE
-                    : !hasEligiblePlayers || now >= phaseUntil || remainingBudget <= 0 ? Phase.RECOVERY : Phase.SURGE;
-            case RESCUE -> downed ? Phase.RESCUE : Phase.RECOVERY;
+            case SURGE -> !hasEligiblePlayers || now >= phaseUntil || remainingBudget <= 0 ? Phase.RECOVERY : Phase.SURGE;
             case RECOVERY -> now >= phaseUntil ? Phase.RETIRED : Phase.RECOVERY;
             case RETIRED -> Phase.RETIRED;
         };
@@ -97,7 +101,7 @@ final class DirectorPolicy {
                 NATIVE_PACKET_INTERVAL, false);
     }
 
-    enum Phase { WARNING, SURGE, RESCUE, RECOVERY, RETIRED }
+    enum Phase { WARNING, SURGE, RECOVERY, RETIRED }
 
     record ProfileSpec(int warningMinimumSeconds, int warningMaximumSeconds, int surgeSeconds,
                        int recoverySeconds, int deepBudgetPerPlayer, int deepActiveTargetPerPlayer,

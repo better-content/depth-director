@@ -118,7 +118,7 @@ class DirectorSimulationTest {
     }
 
     @Test
-    void routeDistressRescueRecoveryAndSurfaceRulesAreExact() {
+    void routeDistressInjuryRecoveryAndSurfaceRulesAreExact() {
         int failures = 0;
         failures = DirectorPolicy.routeFailures(failures, true, false);
         failures = DirectorPolicy.routeFailures(failures, true, false);
@@ -127,29 +127,36 @@ class DirectorSimulationTest {
         double frozen = 0.40;
         for (int second = 0; second < 120; second++) {
             frozen = DirectorPolicy.advancePressure(frozen, 1.0, 180.0,
-                    true, failures >= 3, false, false, false, false, 480);
+                    true, failures >= 3, false, 0.0, false, false, 480);
         }
         assertEquals(0.40, frozen);
         failures = DirectorPolicy.routeFailures(failures, true, true);
         double resumed = DirectorPolicy.advancePressure(frozen, 1.0, 180.0,
-                true, failures >= 3, false, false, false, false, 480);
+                true, failures >= 3, false, 0.0, false, false, 480);
         assertTrue(resumed > frozen && resumed < 0.5, "an open route resumes pressure without accumulated burst");
 
-        assertEquals(300, DirectorPolicy.packetInterval(100, 0.34, 0.35));
-        assertEquals(100, DirectorPolicy.packetInterval(100, 0.35, 0.35));
-        DirectorPolicy.Phase rescue = DirectorPolicy.transition(DirectorPolicy.Phase.SURGE,
-                20, 200, true, true, true, 50);
-        assertEquals(DirectorPolicy.Phase.RESCUE, rescue);
-        assertEquals(0, DirectorPolicy.queuedWorkAfterTransition(6, rescue));
-        assertEquals(DirectorPolicy.Phase.RECOVERY, DirectorPolicy.transition(rescue,
-                21, 200, true, true, false, 0));
+        assertEquals(300, DirectorPolicy.packetInterval(100, 0.34, 0.35, 0.0));
+        assertEquals(100, DirectorPolicy.packetInterval(100, 0.35, 0.35, 0.0));
+        assertEquals(1.0, DirectorPolicy.injuryRate(0));
+        assertEquals(0.5, DirectorPolicy.injuryRate(3));
+        assertEquals(0.25, DirectorPolicy.injuryRate(9));
+        assertEquals(200, DirectorPolicy.packetInterval(100, 1.0, 0.35, 3));
+        assertEquals(600, DirectorPolicy.packetInterval(100, 0.34, 0.35, 3));
+        double healthy = DirectorPolicy.advancePressure(0, 1, 100, true, false, false, 0, false, false, 480);
+        double injured = DirectorPolicy.advancePressure(0, 1, 100, true, false, false, 3, false, false, 480);
+        assertEquals(healthy / 2, injured);
+        assertEquals(DirectorPolicy.Phase.SURGE, DirectorPolicy.transition(DirectorPolicy.Phase.SURGE,
+                20, 200, true, true, 50));
+        assertEquals(6, DirectorPolicy.queuedWorkAfterTransition(6, DirectorPolicy.Phase.SURGE));
+        assertEquals(DirectorPolicy.Phase.RECOVERY, DirectorPolicy.transition(DirectorPolicy.Phase.SURGE,
+                200, 200, true, true, 50));
         assertEquals(0.0, DirectorPolicy.advancePressure(0.0, 1.0, 180.0,
-                true, false, false, false, true, false, 480));
+                true, false, false, 0.0, true, false, 480));
 
         double surfacePressure = 1.0;
         for (int second = 0; second < 480; second++) {
             surfacePressure = DirectorPolicy.advancePressure(surfacePressure, 0.0, 1.0,
-                    false, false, false, false, false, true, 480);
+                    false, false, false, 0.0, false, true, 480);
         }
         assertEquals(0.0, surfacePressure, 1.0e-12);
     }
@@ -306,14 +313,14 @@ class DirectorSimulationTest {
                 int y = trajectory[now % trajectory.length];
                 pressure = DirectorPolicy.advancePressure(pressure,
                         DepthMath.depthFactor(y, SEA_LEVEL, MINIMUM_Y), cadence,
-                        true, false, false, false, false, false, 480);
+                        true, false, false, 0.0, false, false, 480);
                 now++;
             }
             triggers.add(now);
             DirectorPolicy.Profile scaled = DirectorPolicy.scaleProfile(profile.spec,
                     DepthMath.depthFactor(trajectory[now % trajectory.length], SEA_LEVEL, MINIMUM_Y), random.nextDouble());
             phases.add(DirectorPolicy.transition(DirectorPolicy.Phase.WARNING,
-                    now + scaled.warningTicks(), now + scaled.warningTicks(), true, true, false, scaled.budgetPerPlayer()));
+                    now + scaled.warningTicks(), now + scaled.warningTicks(), true, true, scaled.budgetPerPlayer()));
             now += scaled.warningTicks() / 20 + scaled.surgeTicks() / 20 + scaled.recoveryTicks() / 20;
         }
         return new Timeline(List.copyOf(triggers), List.copyOf(phases));
@@ -325,7 +332,7 @@ class DirectorSimulationTest {
         int seconds = 0;
         while (pressure < 1.0) {
             pressure = DirectorPolicy.advancePressure(pressure, depth, cadence,
-                    true, false, false, false, false, false, 480);
+                    true, false, false, 0.0, false, false, 480);
             seconds++;
         }
         return seconds;
