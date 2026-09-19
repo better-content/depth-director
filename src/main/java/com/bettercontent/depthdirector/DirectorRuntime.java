@@ -96,6 +96,11 @@ final class DirectorRuntime {
             tag.putInt("Warning", e.profile.warningTicks()); tag.putInt("Surge", e.profile.surgeTicks()); tag.putInt("Recovery", e.profile.recoveryTicks());
             tag.putInt("Budget", e.profile.budgetPerPlayer()); tag.putInt("Active", e.profile.activeTargetPerPlayer()); tag.putInt("Interval", e.profile.packetIntervalTicks()); tag.putBoolean("Directions", e.profile.maximizeDirections());
             tag.putInt("Queued", e.queuedSpawns); tag.putInt("PacketSector", e.packetTelegraphSector);
+            if (e.blend != null) {
+                tag.putString("BlendPrimary", e.blend.primary().id().toString());
+                if (e.blend.secondary() != null) tag.putString("BlendSecondary", e.blend.secondary().id().toString());
+                tag.putDouble("BlendWeight", e.blend.secondaryWeight());
+            }
             CompoundTag counts = new CompoundTag(); e.encounterCounts.forEach((id, count) -> counts.putInt(id.toString(), count)); tag.put("Counts", counts);
             list.add(tag);
         }); root.put("List", list); DirectorSavedData.get(server).encounters(root);
@@ -110,7 +115,8 @@ final class DirectorRuntime {
             ListTag p = t.getList("Participants", Tag.TAG_COMPOUND); for (int j = 0; j < p.size(); j++) if (p.getCompound(j).hasUUID("Id")) people.add(p.getCompound(j).getUUID("Id"));
             if (people.isEmpty() || !t.hasUUID("Id")) continue;
             DirectorPolicy.Profile profile = new DirectorPolicy.Profile(t.getInt("Warning"), t.getInt("Surge"), t.getInt("Recovery"), t.getInt("Budget"), t.getInt("Active"), t.getInt("Interval"), t.getBoolean("Directions"));
-            Encounter e = new Encounter(t.getUUID("Id"), t.hasUUID("Family") ? t.getUUID("Family") : t.getUUID("Id"), people, null, t.getDouble("Depth"), profile, t.getLong("PhaseUntil"), t.getInt("Remaining"), t.getInt("Spent"));
+            EcologyRegistry.Blend blend = restoredBlend(t);
+            Encounter e = new Encounter(t.getUUID("Id"), t.hasUUID("Family") ? t.getUUID("Family") : t.getUUID("Id"), people, blend, t.getDouble("Depth"), profile, t.getLong("PhaseUntil"), t.getInt("Remaining"), t.getInt("Spent"));
             try { e.phase = DirectorPolicy.Phase.valueOf(t.getString("Phase")); } catch (IllegalArgumentException ignored) { continue; }
             e.lastPacketAt = t.getLong("LastPacket"); e.nextSector = t.getInt("NextSector"); e.suspendedTicks = t.getLong("SuspendedTicks"); e.suspensionReason = t.getString("Suspension"); e.lastFailure = t.getString("Failure");
             e.queuedSpawns = Math.max(0, t.getInt("Queued"));
@@ -119,6 +125,15 @@ final class DirectorRuntime {
             if (t.hasUUID("Target")) e.pursuitTarget = t.getUUID("Target"); encounters.put(e.id, e); e.participants.forEach(id -> participantEncounter.put(id, e.id));
         }
         CompoundTag mobs = DirectorSavedData.get(server).encounters().getCompound("Mobs"); for (String key : mobs.getAllKeys()) try { UUID mob = UUID.fromString(key); directorMobs.add(mob); mobEncounter.put(mob, mobs.getUUID(key)); } catch (RuntimeException ignored) { }
+    }
+
+    private static EcologyRegistry.Blend restoredBlend(CompoundTag tag) {
+        if (!tag.contains("BlendPrimary")) return null;
+        try {
+            EcologyDefinition primary = EcologyRegistry.INSTANCE.definitions().get(new ResourceLocation(tag.getString("BlendPrimary")));
+            EcologyDefinition secondary = tag.contains("BlendSecondary") ? EcologyRegistry.INSTANCE.definitions().get(new ResourceLocation(tag.getString("BlendSecondary"))) : null;
+            return primary == null ? null : new EcologyRegistry.Blend(primary, secondary, tag.getDouble("BlendWeight"));
+        } catch (RuntimeException ignored) { return null; }
     }
 
     void registerMob(Mob mob) {
