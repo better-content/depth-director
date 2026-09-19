@@ -33,4 +33,13 @@ final class InjuryReliefPolicyTest {
         assertEquals(DirectorPolicy.Phase.RECOVERY, DirectorPolicy.transition(DirectorPolicy.Phase.SURGE,
                 100, 100, true, true, after.budget()));
     }
+
+    @Test
+    void repeatedObservationOfTheSameMaimDoesNotCreateASecondSignal() {
+        double relief = DirectorPolicy.advanceInjuryRelief(0, 0, 2, 180);
+        double repeated = DirectorPolicy.advanceInjuryRelief(relief, 2, 2, 180);
+        double renewed = DirectorPolicy.advanceInjuryRelief(repeated, 2, 3, 180);
+        assertTrue(repeated < relief);
+        assertTrue(renewed >= 3.0);
+    }
 }
