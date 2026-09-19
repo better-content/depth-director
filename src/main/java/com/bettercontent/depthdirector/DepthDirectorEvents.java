@@ -54,10 +54,18 @@ public final class DepthDirectorEvents {
         event.getDispatcher().register(Commands.literal("depthdirector").requires(source -> source.hasPermission(2))
                 .then(Commands.literal("inspect").executes(context -> {
                     ServerPlayer player = context.getSource().getPlayerOrException();
+                    if (!DirectorRuntime.INSTANCE.isParticipant(player)) {
+                        context.getSource().sendFailure(Component.literal("player is not an active encounter participant"));
+                        return 0;
+                    }
                     context.getSource().sendSuccess(() -> Component.literal(DirectorRuntime.INSTANCE.inspect(player)), false);
                     return 1;
                 }).then(Commands.argument("player", EntityArgument.player()).executes(context -> {
                     ServerPlayer player = EntityArgument.getPlayer(context, "player");
+                    if (!DirectorRuntime.INSTANCE.isParticipant(player)) {
+                        context.getSource().sendFailure(Component.literal("player is not an active encounter participant"));
+                        return 0;
+                    }
                     context.getSource().sendSuccess(() -> Component.literal(DirectorRuntime.INSTANCE.inspect(player)), false);
                     return 1;
                 }))));

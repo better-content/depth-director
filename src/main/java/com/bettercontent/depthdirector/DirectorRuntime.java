@@ -145,6 +145,11 @@ final class DirectorRuntime {
 
     void removeMob(UUID id) { directorMobs.remove(id); mobEncounter.remove(id); }
 
+    boolean isParticipant(ServerPlayer player) {
+        return player != null && participantEncounter.containsKey(player.getUUID())
+                && encounters.containsKey(participantEncounter.get(player.getUUID()));
+    }
+
     void playerDied(MinecraftServer server, UUID player) {
         DirectorSavedData.get(server).reset(player);
         UUID encounterId = participantEncounter.remove(player);
