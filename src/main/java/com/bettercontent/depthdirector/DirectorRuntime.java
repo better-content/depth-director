@@ -291,7 +291,7 @@ final class DirectorRuntime {
             if (sound != null) {
                 level.playSound(null, position, sound, SoundSource.HOSTILE, 0.75F, 0.85F + random.nextFloat() * 0.25F);
                 for (ServerPlayer player : players) if(player.position().distanceToSqr(net.minecraft.world.phys.Vec3.atCenterOf(position)) < 16 * 16)
-                    net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new com.bettercontent.depthdirector.api.event.CaveWarningEvent(player,encounter.id,position));
+                    WarningAdmission.publish(player, encounter.id, position);
             }
         });
     }
@@ -318,7 +318,7 @@ final class DirectorRuntime {
             for (ServerPlayer player : players) {
                 if(level.sendParticles(player, debris, true, player.getX(), player.getY() + 2.2,
                         player.getZ(), 3, 1.4, 0.25, 1.4, 0.02))
-                    net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(new com.bettercontent.depthdirector.api.event.CaveWarningEvent(player,encounter.id,approach));
+                    WarningAdmission.publish(player, encounter.id, approach);
             }
         }
     }

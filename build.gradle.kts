@@ -90,6 +90,13 @@ repositories {
         metadataSources { artifact() }
         content { includeGroup("bettercontent.local") }
     }
+    ivy {
+        name = "betterContentFixesLocal"
+        url = uri(betterContentJar("better-content-fixes", "better-content-fixes-0.1.8.jar").parentFile)
+        patternLayout { artifact("[artifact]-[revision].[ext]") }
+        metadataSources { artifact() }
+        content { includeGroup("bettercontent.local") }
+    }
     mavenCentral()
 }
 
@@ -97,6 +104,9 @@ dependencies {
     minecraft("net.minecraftforge:forge:${property("minecraft_version")}-${property("forge_version")}")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     compileOnly(fg.deobf("bettercontent.local:downed-player-revival:1.0.0"))
+    compileOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.8"))
+    testCompileOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.8"))
+    testRuntimeOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.8"))
 
     add("worldGameTestRuntimeOnly", fg.deobf("curse.maven:born-in-chaos-686437:7917933"))
     add("worldGameTestRuntimeOnly", fg.deobf("curse.maven:goety-586095:8087429"))
