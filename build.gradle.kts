@@ -37,6 +37,8 @@ minecraft {
             property("forge.enableGameTest", "true")
             property("forge.gameTestServer", "true")
             property("forge.enabledGameTestNamespaces", property("mod_id") as String)
+            property("mixin.env.remapRefMap", "true")
+            property("mixin.env.refMapRemappingFile", file("build/createSrgToMcp/output.srg").absolutePath)
             arg("--nogui")
         }
         create("worldGameTestServer") {
@@ -105,6 +107,10 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     compileOnly(fg.deobf("bettercontent.local:downed-player-revival:1.0.0"))
     compileOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.8"))
+    // GameTestServer and local dev runs need the declared hard dependencies at runtime.
+    runtimeOnly(fg.deobf("bettercontent.local:downed-player-revival:1.0.0"))
+    runtimeOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.8"))
+    runtimeOnly("io.github.llamalad7:mixinextras-forge:0.5.4")
     testCompileOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.8"))
     testRuntimeOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.8"))
 

@@ -175,7 +175,7 @@ public final class DepthDirectorGameTests {
     @GameTest(templateNamespace = DepthDirectorMod.MOD_ID, template = TEMPLATE, timeoutTicks = 120)
     public static void eventAuthoredSpawnTargetsPlayerAndCarriesProvenance(GameTestHelper helper) {
         buildFixture(helper);
-        ServerPlayer player = player(helper, PLAYER);
+        ServerPlayer player = registeredPlayer(helper, PLAYER);
         helper.runAfterDelay(10, () -> {
             EcologyDefinition loaded = EcologyRegistry.INSTANCE.definitions().get(id("undead"));
             helper.assertTrue(loaded != null, "undead ecology must be loaded");
