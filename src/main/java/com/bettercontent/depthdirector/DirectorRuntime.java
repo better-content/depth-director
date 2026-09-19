@@ -75,6 +75,9 @@ final class DirectorRuntime {
         }
         updateEncounters(server, now);
         processSpawnQueue(server, now);
+        // Encounter state is authoritative in SavedData, so normal autosaves also
+        // capture phase, ownership, and budget mutations between clean shutdowns.
+        persist(server);
     }
 
     void persist(MinecraftServer server) {
