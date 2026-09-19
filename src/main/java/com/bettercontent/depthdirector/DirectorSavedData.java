@@ -18,10 +18,19 @@ public final class DirectorSavedData extends SavedData {
         return server.overworld().getDataStorage().computeIfAbsent(DirectorSavedData::load, DirectorSavedData::new, NAME);
     }
 
+    public static DirectorSavedData peek(MinecraftServer server) {
+        return server.overworld().getDataStorage().get(DirectorSavedData::load, NAME);
+    }
+
     public Track track(UUID player) {
         Track track = tracks.computeIfAbsent(player, ignored -> new Track());
         setDirty();
         return track;
+    }
+
+    /** Inspection must not create a track or mark the world dirty. */
+    public Track peekTrack(UUID player) {
+        return tracks.get(player);
     }
 
     public void reset(UUID player) {

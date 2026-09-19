@@ -1,5 +1,12 @@
 # Depth Director
 
+Operators with permission level 2 may use `/depthdirector inspect <online player>`
+to read that player's encounter identity and family, phase, pursuit target and
+locality, warned approach, spent/remaining budget, active mob count, and the last
+observed suspension or spawn failure reason. `/depthdirector inspect` inspects the
+operator's own player. Inspection creates no player track and never changes an
+encounter. There is no operator force-spawn command.
+
 A small server-authoritative underground encounter director for Better Content. It
 groups nearby players, builds pressure from time and depth below the local terrain surface,
 and sends bounded packets from unseen, dark, reachable cave routes. The surface boundary

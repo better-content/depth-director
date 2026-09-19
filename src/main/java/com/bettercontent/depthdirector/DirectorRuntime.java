@@ -91,27 +91,38 @@ final class DirectorRuntime {
     }
 
     String inspect(ServerPlayer player) {
-        DirectorSavedData.Track track = DirectorSavedData.get(player.server).track(player.getUUID());
+        DirectorSavedData saved = DirectorSavedData.peek(player.server);
+        DirectorSavedData.Track track = saved == null ? null : saved.peekTrack(player.getUUID());
         UUID encounterId = participantEncounter.get(player.getUUID());
         Encounter encounter = encounterId == null ? null : encounters.get(encounterId);
         double depth = depth(player);
         EcologyRegistry.Blend blend = player.serverLevel().dimension() == Level.OVERWORLD
                 ? EcologyRegistry.INSTANCE.blend(player.serverLevel().getSeed(), player.position()) : null;
-        return "depth=" + format(depth) + " pressure=" + format(track.pressure())
+        String locality = player.serverLevel().dimension().location() + "@" + player.blockPosition().toShortString();
+        String target = "none";
+        if (encounter != null && encounter.pursuitTarget != null) {
+            ServerPlayer pursued = player.server.getPlayerList().getPlayer(encounter.pursuitTarget);
+            target = pursued == null ? "offline:" + encounter.pursuitTarget
+                    : pursued.getGameProfile().getName() + "@"
+                    + pursued.serverLevel().dimension().location() + ":" + pursued.blockPosition().toShortString();
+        }
+        String approach = encounter == null || encounter.packetTelegraphPosition == null ? "none"
+                : encounter.packetTelegraphPosition.toShortString() + "/sector=" + encounter.packetTelegraphSector;
+        return "player=" + player.getGameProfile().getName() + " locality=" + locality
+                + " depth=" + format(depth) + " pressure=" + format(track == null ? 0.0 : track.pressure())
                 + " ecology=" + (blend == null ? "native" : blend.label())
+                + " encounter=" + (encounter == null ? "none" : encounter.id)
+                + " family=" + (encounter == null ? "none" : encounter.family)
                 + " phase=" + (encounter == null ? "build_up" : encounter.phase.name().toLowerCase())
-                + " budget=" + (encounter == null ? 0 : encounter.remainingBudget)
+                + " target=" + target + " participants=" + (encounter == null ? 0 : encounter.participants.size())
+                + " warned_approach=" + approach
+                + " spent=" + (encounter == null ? 0 : encounter.spentBudget)
+                + " remaining=" + (encounter == null ? 0 : encounter.remainingBudget)
                 + " active=" + (encounter == null ? 0 : activeNear(player.server, encounter.players(player.server)))
-                + " route_failures=" + track.probeFailures();
-    }
-
-    boolean force(ServerPlayer player, ResourceLocation ecologyId) {
-        if (!eligible(player) || participantEncounter.containsKey(player.getUUID())) return false;
-        EcologyDefinition definition = EcologyRegistry.INSTANCE.definitions().get(ecologyId);
-        if (definition == null) return false;
-        EcologyRegistry.Blend blend = new EcologyRegistry.Blend(definition, null, 0.0);
-        createEncounter(player.server, List.of(player), blend, depth(player), player.serverLevel().getGameTime());
-        return true;
+                + " suspension=" + (encounter == null || encounter.phase != DirectorPolicy.Phase.SUSPENDED
+                    ? "none" : encounter.suspensionReason)
+                + " last_failure=" + (encounter == null ? "none" : encounter.lastFailure)
+                + " route_failures=" + (track == null ? 0 : track.probeFailures());
     }
 
     private void updatePressure(MinecraftServer server, long now) {
@@ -192,7 +203,7 @@ final class DirectorRuntime {
             Encounter encounter = iterator.next();
             List<ServerPlayer> players = encounter.players(server);
             if (players.isEmpty()) {
-                suspend(encounter, now);
+                suspend(encounter, now, "participants_offline");
                 continue;
             }
             if (splitSeparatedEncounter(server, encounter, players, now, localityChildren)) {
@@ -205,7 +216,7 @@ final class DirectorRuntime {
             }
             List<ServerPlayer> underground = encounter.pursuitPlayers(server, this::eligible);
             if (underground.isEmpty() && encounter.phase != DirectorPolicy.Phase.RECOVERY) {
-                suspend(encounter, now);
+                suspend(encounter, now, "no_eligible_pursuit");
                 continue;
             }
             if (encounter.phase == DirectorPolicy.Phase.WARNING) {
@@ -216,7 +227,7 @@ final class DirectorRuntime {
                     DirectorPolicy.Phase next = DirectorPolicy.transition(encounter.phase, now, encounter.phaseUntil,
                             !underground.isEmpty(), routeOpen, encounter.remainingBudget);
                     if (next == DirectorPolicy.Phase.SUSPENDED) {
-                        suspend(encounter, now);
+                        suspend(encounter, now, "route_unavailable");
                     } else if (next == DirectorPolicy.Phase.RETIRED) {
                         encounter.phase = next;
                         restoreFrozenPressure(server, encounter);
@@ -261,7 +272,7 @@ final class DirectorRuntime {
                 } else if ((encounter.lastPacketAt < 0L || now - encounter.lastPacketAt >= interval)
                         && active < activeLimit && encounter.queuedSpawns == 0) {
                     if (!beginPacketTelegraph(underground.get(0).serverLevel(), underground, encounter, now, false)) {
-                        suspend(encounter, now);
+                        suspend(encounter, now, "warned_approach_unavailable");
                     }
                 }
                 continue;
@@ -351,6 +362,7 @@ final class DirectorRuntime {
             encounter.queuedSpawns--;
             if (!result.spawned()) {
                 // The warned corridor did not admit this selected mob. Cancel before direction changes.
+                encounter.lastFailure = "warned_approach_rejected";
                 encounter.queuedSpawns = 0;
                 cancelPacketTelegraph(encounter);
                 continue;
@@ -365,10 +377,11 @@ final class DirectorRuntime {
             }
             encounter.remainingBudget = Math.max(0, encounter.remainingBudget - result.cost());
             encounter.spentBudget += result.cost();
+            encounter.lastFailure = "none";
             spawnsThisSecond++;
             if (encounter.queuedSpawns > 0) {
                 if (!beginPacketTelegraph(players.get(0).serverLevel(), players, encounter, now, true)) {
-                    suspend(encounter, now);
+                    suspend(encounter, now, "warned_approach_unavailable");
                 }
             }
         }
@@ -444,7 +457,9 @@ final class DirectorRuntime {
         encounter.packetTelegraphContinuation = false;
     }
 
-    private void suspend(Encounter encounter, long now) {
+    private void suspend(Encounter encounter, long now, String reason) {
+        encounter.suspensionReason = reason;
+        encounter.lastFailure = reason;
         if (encounter.phase == DirectorPolicy.Phase.SUSPENDED) return;
         encounter.suspendedPhase = encounter.phase;
         encounter.suspendedTicks = Math.max(0L, encounter.phaseUntil - now);
@@ -455,10 +470,20 @@ final class DirectorRuntime {
 
     private boolean resumeIfPursuitAvailable(MinecraftServer server, Encounter encounter, long now) {
         List<ServerPlayer> pursuit = encounter.pursuitPlayers(server, this::eligible);
-        if (pursuit.isEmpty() || !SpawnLocator.hasApproach(pursuit.get(0).serverLevel(), pursuit, random)) return false;
+        if (pursuit.isEmpty()) {
+            encounter.suspensionReason = "no_eligible_pursuit";
+            encounter.lastFailure = encounter.suspensionReason;
+            return false;
+        }
+        if (!SpawnLocator.hasApproach(pursuit.get(0).serverLevel(), pursuit, random)) {
+            encounter.suspensionReason = "route_unavailable";
+            encounter.lastFailure = encounter.suspensionReason;
+            return false;
+        }
         encounter.phase = encounter.suspendedPhase;
         encounter.phaseUntil = now + encounter.suspendedTicks;
         encounter.suspendedTicks = 0L;
+        encounter.suspensionReason = "none";
         return true;
     }
 
@@ -619,6 +644,8 @@ final class DirectorRuntime {
         private long localitySeparatedSince = -1L;
         private DirectorPolicy.Phase suspendedPhase = DirectorPolicy.Phase.WARNING;
         private long suspendedTicks;
+        private String suspensionReason = "none";
+        private String lastFailure = "none";
         private final Map<ResourceLocation, Integer> packetCounts = new HashMap<>();
         private final Map<ResourceLocation, Integer> encounterCounts = new HashMap<>();
 
@@ -657,6 +684,8 @@ final class DirectorRuntime {
             child.nextSector = parent.nextSector;
             child.suspendedPhase = parent.suspendedPhase;
             child.suspendedTicks = parent.suspendedTicks;
+            child.suspensionReason = parent.suspensionReason;
+            child.lastFailure = parent.lastFailure;
             child.pursuitTarget = participants.contains(parent.pursuitTarget) ? parent.pursuitTarget : child.pursuitTarget;
             return child;
         }
@@ -681,6 +710,11 @@ final class DirectorRuntime {
             merged.suspendedPhase = family.stream().map(encounter -> encounter.suspendedPhase)
                     .max(Comparator.comparingInt(Encounter::phaseProgress)).orElse(DirectorPolicy.Phase.WARNING);
             merged.suspendedTicks = family.stream().mapToLong(encounter -> encounter.suspendedTicks).max().orElse(0L);
+            merged.suspensionReason = family.stream().filter(encounter -> encounter.phase == DirectorPolicy.Phase.SUSPENDED)
+                    .map(encounter -> encounter.suspensionReason).filter(reason -> !"none".equals(reason))
+                    .findFirst().orElse("none");
+            merged.lastFailure = family.stream().map(encounter -> encounter.lastFailure)
+                    .filter(reason -> !"none".equals(reason)).findFirst().orElse("none");
             merged.pursuitTarget = family.stream().map(encounter -> encounter.pursuitTarget)
                     .filter(participants::contains).min(UUID::compareTo).orElse(merged.pursuitTarget);
             family.forEach(encounter -> encounter.encounterCounts.forEach((entity, count) ->

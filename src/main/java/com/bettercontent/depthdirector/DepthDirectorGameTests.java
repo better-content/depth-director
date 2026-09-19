@@ -37,6 +37,28 @@ public final class DepthDirectorGameTests {
     private DepthDirectorGameTests() {}
 
     @GameTest(templateNamespace = DepthDirectorMod.MOD_ID, template = TEMPLATE, timeoutTicks = 100)
+    public static void operatorInspectionIsReadOnlyAndHasNoForceCommand(GameTestHelper helper) {
+        var root = helper.getLevel().getServer().getCommands().getDispatcher().getRoot().getChild("depthdirector");
+        helper.assertTrue(root != null, "operator command must be registered");
+        helper.assertTrue(root.getChild("force") == null, "operator surface must not expose forced spawning");
+        var inspect = root.getChild("inspect");
+        helper.assertTrue(inspect != null && inspect.getChild("player") != null,
+                "operator inspection must accept one online player");
+        helper.assertTrue(!root.canUse(helper.getLevel().getServer().createCommandSourceStack().withPermission(0)),
+                "inspection must require operator permission");
+        ServerPlayer player = player(helper, PLAYER);
+        DirectorSavedData data = DirectorSavedData.get(helper.getLevel().getServer());
+        helper.assertTrue(data.peekTrack(player.getUUID()) == null, "fixture player must have no saved track");
+        String summary = DirectorRuntime.INSTANCE.inspect(player);
+        helper.assertTrue(summary.contains("player=director-test-player")
+                        && summary.contains("phase=build_up") && summary.contains("remaining=0"),
+                "inspection must explain a player without an encounter");
+        helper.assertTrue(data.peekTrack(player.getUUID()) == null,
+                "inspection must not create persistent player state");
+        helper.succeed();
+    }
+
+    @GameTest(templateNamespace = DepthDirectorMod.MOD_ID, template = TEMPLATE, timeoutTicks = 100)
     public static void directorBoundaryTracksLocalLeafIgnoringSurface(GameTestHelper helper) {
         BlockPos column = helper.absolutePos(new BlockPos(4, 1, 4));
         int originalSurface = helper.getLevel().getHeight(
