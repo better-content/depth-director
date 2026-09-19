@@ -71,7 +71,7 @@ final class DirectorRuntime {
     }
 
     void registerMob(Mob mob) {
-        if (mob.getPersistentData().getBoolean(SpawnLocator.PROVENANCE_NBT) || mob.getTags().contains(SpawnLocator.PROVENANCE_TAG)) {
+        if (SpawnLocator.isDirectorMob(mob)) {
             directorMobs.add(mob.getUUID());
             SpawnLocator.restoreDirectorMob(mob);
         }

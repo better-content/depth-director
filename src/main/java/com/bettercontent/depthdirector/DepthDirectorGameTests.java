@@ -220,6 +220,18 @@ public final class DepthDirectorGameTests {
             helper.assertTrue(second.mob() != null && second.mob().getTarget() == player
                             && !second.mob().isNoAi() && !second.mob().isInvulnerable(),
                     "other materialized group members must retain independent combat state");
+            if (second.mob() != null) {
+                second.mob().getPersistentData().remove(SpawnLocator.PROVENANCE_NBT);
+                second.mob().setTarget(null);
+                second.mob().setNoAi(true);
+                second.mob().setInvulnerable(true);
+                SpawnLocator.restoreDirectorMob(second.mob());
+            }
+            helper.assertTrue(second.mob() != null
+                            && second.mob().getPersistentData().getBoolean(SpawnLocator.PROVENANCE_NBT)
+                            && second.mob().getTarget() == player
+                            && !second.mob().isNoAi() && !second.mob().isInvulnerable(),
+                    "a loaded legacy provenance tag must migrate and recover ordinary combat state");
             if (result.mob() != null) result.mob().discard();
             if (second.mob() != null) second.mob().discard();
             finish(helper, player);
@@ -256,6 +268,16 @@ public final class DepthDirectorGameTests {
                     "the registered combat target must be ordinarily vulnerable and unarmored");
             helper.assertTrue(player.getHealth() == player.getMaxHealth(),
                     "the registered combat target must begin at full health");
+
+            if (result.mob() != null) {
+                result.mob().setTarget(null);
+                result.mob().setNoAi(true);
+                result.mob().setInvulnerable(true);
+                SpawnLocator.restoreDirectorMob(result.mob());
+            }
+            helper.assertTrue(result.mob() != null && result.mob().getTarget() == player
+                            && !result.mob().isNoAi() && !result.mob().isInvulnerable(),
+                    "the real authored combat mob must recover targetable, damageable AI after reload restoration");
 
             long combatStarted = helper.getTick();
             helper.succeedWhen(() -> {

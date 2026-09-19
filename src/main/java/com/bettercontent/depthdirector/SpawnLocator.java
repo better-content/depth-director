@@ -131,8 +131,11 @@ final class SpawnLocator {
     }
 
     static void restoreDirectorMob(Mob mob) {
-        if (!mob.getPersistentData().getBoolean(PROVENANCE_NBT)) return;
+        if (!isDirectorMob(mob)) return;
         if (!(mob.level() instanceof ServerLevel level)) return;
+        // Older Director mobs carried the persisted scoreboard marker before the NBT marker existed.
+        // Migrate them when their owning chunk loads so subsequent reloads keep the durable marker.
+        mob.getPersistentData().putBoolean(PROVENANCE_NBT, true);
         mob.setNoAi(false);
         mob.setInvulnerable(false);
         if (!mob.getPersistentData().hasUUID(TARGET_NBT)) {
@@ -146,6 +149,10 @@ final class SpawnLocator {
         } else {
             mob.setTarget(null);
         }
+    }
+
+    static boolean isDirectorMob(Mob mob) {
+        return mob.getPersistentData().getBoolean(PROVENANCE_NBT) || mob.getTags().contains(PROVENANCE_TAG);
     }
 
     private static void bindCombatTarget(Mob mob, ServerPlayer target) {
