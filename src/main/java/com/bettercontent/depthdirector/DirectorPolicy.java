@@ -56,6 +56,13 @@ final class DirectorPolicy {
         return 1.0 / (1.0 + Math.max(0.0, averageActiveMaims) / 3.0);
     }
 
+    /** Advances the one-second injury relief signal without making treatment an encounter reset. */
+    static double advanceInjuryRelief(double relief, int previousMaims, int activeMaims, int decaySeconds) {
+        double observed = Math.max(0, activeMaims);
+        if (observed > Math.max(0, previousMaims)) return Math.max(Math.max(0.0, relief), observed);
+        return Math.max(0.0, relief) * (1.0 - 1.0 / Math.max(1, decaySeconds));
+    }
+
     static int packetInterval(int baseTicks, double healthRatio, double distressThreshold, double averageActiveMaims) {
         double interval = Math.max(1, baseTicks) * (healthRatio < distressThreshold ? 3.0 : 1.0)
                 / injuryRate(averageActiveMaims);

@@ -63,6 +63,7 @@ final class DirectorRuntime {
         if (now % 20L == 0L) {
             spawnsThisSecond = 0;
             cleanupMobs(server);
+            updateInjuryRelief(server);
             updatePressure(server, now);
         }
         updateEncounters(server, now);
@@ -134,7 +135,7 @@ final class DirectorRuntime {
             }
             boolean secured = group.stream().allMatch(player -> data.track(player.getUUID()).probeFailures() >= 3);
             boolean distressed = healthRatio(group) < DISTRESS_HEALTH;
-            double averageMaims = averageMaims(group);
+            double averageMaims = averageInjuryRelief(group, data);
 
             Vec3 center = center(group);
             EcologyRegistry.Blend blend = level.dimension() == Level.OVERWORLD
@@ -220,7 +221,8 @@ final class DirectorRuntime {
                 int activeLimit = Math.max(1, limits.activeTarget());
                 int active = activeNear(server, underground);
                 int interval = DirectorPolicy.packetInterval(encounter.profile.packetIntervalTicks(),
-                        healthRatio(underground), DISTRESS_HEALTH, averageMaims(underground));
+                        healthRatio(underground), DISTRESS_HEALTH,
+                        averageInjuryRelief(underground, DirectorSavedData.get(server)));
                 if (encounter.packetTelegraphUntil >= 0L) {
                     playPacketTelegraph(underground.get(0).serverLevel(), underground, encounter, now);
                     if (DirectorPolicy.packetTelegraphComplete(now, encounter.packetTelegraphUntil)) {
@@ -408,8 +410,16 @@ final class DirectorRuntime {
         return DepthMath.controlCeiling(surfaceY, reserveDepth);
     }
 
-    private static double averageMaims(Collection<ServerPlayer> players) {
-        return players.stream().mapToInt(InjuryCompat::activeMaimCount).average().orElse(0.0);
+    private static void updateInjuryRelief(MinecraftServer server) {
+        DirectorSavedData data = DirectorSavedData.get(server);
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            data.track(player.getUUID()).observeInjuries(InjuryCompat.activeMaimCount(player),
+                    DirectorConfig.INJURY_RELIEF_DECAY_SECONDS.get());
+        }
+    }
+
+    private static double averageInjuryRelief(Collection<ServerPlayer> players, DirectorSavedData data) {
+        return players.stream().mapToDouble(player -> data.track(player.getUUID()).injuryRelief()).average().orElse(0.0);
     }
 
     private static double healthRatio(Collection<ServerPlayer> players) {

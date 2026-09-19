@@ -14,6 +14,7 @@ public final class DirectorConfig {
     public static final ForgeConfigSpec.IntValue MAX_SPAWNS_PER_SECOND;
     public static final ForgeConfigSpec.IntValue SURFACE_RESERVE_DEPTH;
     public static final ForgeConfigSpec.IntValue SURFACE_DECAY_SECONDS;
+    public static final ForgeConfigSpec.IntValue INJURY_RELIEF_DECAY_SECONDS;
 
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -33,6 +34,10 @@ public final class DirectorConfig {
         SURFACE_DECAY_SECONDS = builder.comment(
                         "Seconds outside the Director-controlled depth range required to drain full pressure.")
                 .defineInRange("surfacePressureDecaySeconds", 480, 30, 3600);
+        INJURY_RELIEF_DECAY_SECONDS = builder.comment(
+                        "Seconds for a one-time injury relief signal to decay toward its baseline after a newly observed maim.",
+                        "Relief decays while injuries remain and after treatment; new maims renew it. Default: 180 seconds.")
+                .defineInRange("injuryReliefDecaySeconds", 180, 30, 1800);
         builder.pop();
         SPEC = builder.build();
     }

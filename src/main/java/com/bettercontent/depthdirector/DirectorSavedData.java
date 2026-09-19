@@ -40,6 +40,8 @@ public final class DirectorSavedData extends SavedData {
             track.recoveryUntil = entry.getLong("RecoveryUntil");
             track.probeFailures = entry.getInt("ProbeFailures");
             track.jitter = entry.contains("Jitter") ? DepthMath.clamp(entry.getDouble("Jitter"), 0.0, 1.0) : 0.5;
+            track.injuryRelief = Math.max(0.0, entry.getDouble("InjuryRelief"));
+            track.lastObservedMaims = Math.max(0, entry.getInt("LastObservedMaims"));
             data.tracks.put(entry.getUUID("Player"), track);
         }
         return data;
@@ -55,6 +57,8 @@ public final class DirectorSavedData extends SavedData {
             entry.putLong("RecoveryUntil", track.recoveryUntil);
             entry.putInt("ProbeFailures", track.probeFailures);
             entry.putDouble("Jitter", track.jitter);
+            entry.putDouble("InjuryRelief", track.injuryRelief);
+            entry.putInt("LastObservedMaims", track.lastObservedMaims);
             list.add(entry);
         });
         root.put("Tracks", list);
@@ -66,14 +70,22 @@ public final class DirectorSavedData extends SavedData {
         private long recoveryUntil;
         private int probeFailures;
         private double jitter = 0.5;
+        private double injuryRelief;
+        private int lastObservedMaims;
 
         public double pressure() { return pressure; }
         public long recoveryUntil() { return recoveryUntil; }
         public int probeFailures() { return probeFailures; }
         public double jitter() { return jitter; }
+        public double injuryRelief() { return injuryRelief; }
         public void pressure(double value) { pressure = DepthMath.clamp(value, 0.0, 1.0); }
         public void recoveryUntil(long value) { recoveryUntil = value; }
         public void probeFailures(int value) { probeFailures = Math.max(0, value); }
         public void rerollJitter(net.minecraft.util.RandomSource random) { jitter = random.nextDouble(); }
+        public void observeInjuries(int activeMaims, int decaySeconds) {
+            injuryRelief = DirectorPolicy.advanceInjuryRelief(injuryRelief, lastObservedMaims,
+                    activeMaims, decaySeconds);
+            lastObservedMaims = Math.max(0, activeMaims);
+        }
     }
 }
