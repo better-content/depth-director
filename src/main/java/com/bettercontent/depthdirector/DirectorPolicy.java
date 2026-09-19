@@ -1,6 +1,7 @@
 package com.bettercontent.depthdirector;
 
 import java.util.List;
+import java.util.UUID;
 
 final class DirectorPolicy {
     static final int NATIVE_CADENCE_MIN = 240;
@@ -115,6 +116,12 @@ final class DirectorPolicy {
             remainders[selected] = -1L;
         }
         return allocation;
+    }
+
+    /** Keeps the current loaded pursuit player when possible, otherwise chooses a stable eligible participant. */
+    static UUID pursuitTarget(UUID current, List<UUID> participants, List<UUID> eligible) {
+        if (current != null && participants.contains(current) && eligible.contains(current)) return current;
+        return eligible.stream().filter(participants::contains).min(UUID::compareTo).orElse(null);
     }
 
     static int queuedWorkAfterTransition(int queuedWork, Phase phase) {

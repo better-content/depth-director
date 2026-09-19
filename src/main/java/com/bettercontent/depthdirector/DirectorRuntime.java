@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 final class DirectorRuntime {
     static final DirectorRuntime INSTANCE = new DirectorRuntime();
@@ -179,7 +180,7 @@ final class DirectorRuntime {
             track.probeFailures(0);
             track.rerollJitter(random);
         }
-        List<ServerPlayer> pursuit = encounter.pursuitPlayers(server);
+        List<ServerPlayer> pursuit = encounter.pursuitPlayers(server, this::eligible);
         if (!pursuit.isEmpty()) playWarning(pursuit.get(0).serverLevel(), pursuit, encounter);
     }
 
@@ -202,7 +203,7 @@ final class DirectorRuntime {
                 resumeIfPursuitAvailable(server, encounter, now);
                 continue;
             }
-            List<ServerPlayer> underground = encounter.pursuitPlayers(server).stream().filter(this::eligible).toList();
+            List<ServerPlayer> underground = encounter.pursuitPlayers(server, this::eligible);
             if (underground.isEmpty() && encounter.phase != DirectorPolicy.Phase.RECOVERY) {
                 suspend(encounter, now);
                 continue;
@@ -332,7 +333,7 @@ final class DirectorRuntime {
         if (active.isEmpty()) return;
         for (int attempt = 0; attempt < allowance; attempt++) {
             Encounter encounter = active.get(DirectorPolicy.roundRobinIndex(roundRobinOffset, attempt, active.size()));
-            List<ServerPlayer> players = encounter.pursuitPlayers(server).stream().filter(this::eligible).toList();
+            List<ServerPlayer> players = encounter.pursuitPlayers(server, this::eligible);
             if (players.isEmpty() || encounter.queuedSpawns <= 0 || encounter.packetTelegraphUntil >= 0L) continue;
             BlockPos warnedApproach = encounter.packetTelegraphPosition;
             int warnedSector = encounter.packetTelegraphSector;
@@ -453,7 +454,7 @@ final class DirectorRuntime {
     }
 
     private boolean resumeIfPursuitAvailable(MinecraftServer server, Encounter encounter, long now) {
-        List<ServerPlayer> pursuit = encounter.pursuitPlayers(server).stream().filter(this::eligible).toList();
+        List<ServerPlayer> pursuit = encounter.pursuitPlayers(server, this::eligible);
         if (pursuit.isEmpty() || !SpawnLocator.hasApproach(pursuit.get(0).serverLevel(), pursuit, random)) return false;
         encounter.phase = encounter.suspendedPhase;
         encounter.phaseUntil = now + encounter.suspendedTicks;
@@ -701,10 +702,16 @@ final class DirectorRuntime {
             return participants.stream().map(server.getPlayerList()::getPlayer).filter(java.util.Objects::nonNull).toList();
         }
 
-        private List<ServerPlayer> pursuitPlayers(MinecraftServer server) {
+        private List<ServerPlayer> pursuitPlayers(MinecraftServer server, Predicate<ServerPlayer> eligible) {
+            List<ServerPlayer> available = participants.stream()
+                    .map(server.getPlayerList()::getPlayer)
+                    .filter(java.util.Objects::nonNull)
+                    .filter(eligible)
+                    .toList();
+            pursuitTarget = DirectorPolicy.pursuitTarget(pursuitTarget, participants,
+                    available.stream().map(ServerPlayer::getUUID).toList());
             if (pursuitTarget == null) return List.of();
-            ServerPlayer player = server.getPlayerList().getPlayer(pursuitTarget);
-            return player == null ? List.of() : List.of(player);
+            return available.stream().filter(player -> player.getUUID().equals(pursuitTarget)).toList();
         }
 
         private void replacePursuitTarget() {
