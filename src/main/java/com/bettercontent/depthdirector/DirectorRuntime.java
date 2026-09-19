@@ -44,6 +44,7 @@ final class DirectorRuntime {
     private final Map<UUID, Encounter> encounters = new LinkedHashMap<>();
     private final Map<UUID, UUID> participantEncounter = new HashMap<>();
     private final Set<UUID> directorMobs = new HashSet<>();
+    private final Map<UUID, UUID> mobEncounter = new HashMap<>();
     private int spawnsThisSecond;
     private int roundRobinOffset;
     private boolean restored;
@@ -54,6 +55,7 @@ final class DirectorRuntime {
         encounters.clear();
         participantEncounter.clear();
         directorMobs.clear();
+        mobEncounter.clear();
         spawnsThisSecond = 0;
         roundRobinOffset = 0;
         restored = false;
@@ -77,7 +79,7 @@ final class DirectorRuntime {
         processSpawnQueue(server, now);
         // Encounter state is authoritative in SavedData, so normal autosaves also
         // capture phase, ownership, and budget mutations between clean shutdowns.
-        persist(server);
+        if (now % 20L == 0L) persist(server);
     }
 
     void persist(MinecraftServer server) {
@@ -93,8 +95,12 @@ final class DirectorRuntime {
             tag.putString("Suspension", e.suspensionReason); tag.putString("Failure", e.lastFailure);
             tag.putInt("Warning", e.profile.warningTicks()); tag.putInt("Surge", e.profile.surgeTicks()); tag.putInt("Recovery", e.profile.recoveryTicks());
             tag.putInt("Budget", e.profile.budgetPerPlayer()); tag.putInt("Active", e.profile.activeTargetPerPlayer()); tag.putInt("Interval", e.profile.packetIntervalTicks()); tag.putBoolean("Directions", e.profile.maximizeDirections());
+            tag.putInt("Queued", e.queuedSpawns); tag.putInt("PacketSector", e.packetTelegraphSector);
+            CompoundTag counts = new CompoundTag(); e.encounterCounts.forEach((id, count) -> counts.putInt(id.toString(), count)); tag.put("Counts", counts);
             list.add(tag);
         }); root.put("List", list); DirectorSavedData.get(server).encounters(root);
+        CompoundTag mobs = new CompoundTag(); mobEncounter.forEach((mob, encounter) -> mobs.putUUID(mob.toString(), encounter)); root.put("Mobs", mobs);
+        DirectorSavedData.get(server).encounters(root);
     }
 
     private void restore(MinecraftServer server) {
@@ -107,9 +113,12 @@ final class DirectorRuntime {
             Encounter e = new Encounter(t.getUUID("Id"), t.hasUUID("Family") ? t.getUUID("Family") : t.getUUID("Id"), people, null, t.getDouble("Depth"), profile, t.getLong("PhaseUntil"), t.getInt("Remaining"), t.getInt("Spent"));
             try { e.phase = DirectorPolicy.Phase.valueOf(t.getString("Phase")); } catch (IllegalArgumentException ignored) { continue; }
             e.lastPacketAt = t.getLong("LastPacket"); e.nextSector = t.getInt("NextSector"); e.suspendedTicks = t.getLong("SuspendedTicks"); e.suspensionReason = t.getString("Suspension"); e.lastFailure = t.getString("Failure");
+            e.queuedSpawns = Math.max(0, t.getInt("Queued"));
+            CompoundTag counts = t.getCompound("Counts"); for (String key : counts.getAllKeys()) try { e.encounterCounts.put(new ResourceLocation(key), counts.getInt(key)); } catch (RuntimeException ignored) { }
             try { e.suspendedPhase = DirectorPolicy.Phase.valueOf(t.getString("SuspendedPhase")); } catch (IllegalArgumentException ignored) { }
             if (t.hasUUID("Target")) e.pursuitTarget = t.getUUID("Target"); encounters.put(e.id, e); e.participants.forEach(id -> participantEncounter.put(id, e.id));
         }
+        CompoundTag mobs = DirectorSavedData.get(server).encounters().getCompound("Mobs"); for (String key : mobs.getAllKeys()) try { UUID mob = UUID.fromString(key); directorMobs.add(mob); mobEncounter.put(mob, mobs.getUUID(key)); } catch (RuntimeException ignored) { }
     }
 
     void registerMob(Mob mob) {
@@ -119,7 +128,7 @@ final class DirectorRuntime {
         }
     }
 
-    void removeMob(UUID id) { directorMobs.remove(id); }
+    void removeMob(UUID id) { directorMobs.remove(id); mobEncounter.remove(id); }
 
     void playerDied(MinecraftServer server, UUID player) {
         DirectorSavedData.get(server).reset(player);
@@ -411,6 +420,7 @@ final class DirectorRuntime {
             encounter.nextSector = DirectorPolicy.nextSectorAfterSpawn(warnedSector,
                     encounter.profile.maximizeDirections(), true);
             registerMob(result.mob());
+            mobEncounter.put(result.mob().getUUID(), encounter.id);
             if (result.role() == EcologyDefinition.Role.HEAVY) encounter.heavySpawnedInPacket = true;
             if (result.entity() != null) {
                 encounter.packetCounts.merge(result.entity(), 1, Integer::sum);
@@ -554,7 +564,7 @@ final class DirectorRuntime {
     private void cleanupMobs(MinecraftServer server) {
         directorMobs.removeIf(id -> {
             Entity entity = findEntity(server, id);
-            if (!(entity instanceof Mob mob)) return true;
+            if (!(entity instanceof Mob mob)) { mobEncounter.remove(id); return true; }
             SpawnLocator.restoreDirectorMob(mob);
             return false;
         });
