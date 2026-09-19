@@ -1,5 +1,7 @@
 package com.bettercontent.depthdirector;
 
+import java.util.List;
+
 final class DirectorPolicy {
     static final int NATIVE_CADENCE_MIN = 240;
     static final int NATIVE_CADENCE_MAX = 420;
@@ -89,6 +91,30 @@ final class DirectorPolicy {
     static int nextSectorAfterSpawn(int warnedSector, boolean maximizeDirections, boolean spawned) {
         if (!maximizeDirections || !spawned) return warnedSector;
         return Math.floorMod(warnedSector + 1, 8);
+    }
+
+    static int[] allocateConserved(int total, List<Integer> weights) {
+        int safeTotal = Math.max(0, total);
+        int[] allocation = new int[weights.size()];
+        long weightTotal = weights.stream().mapToLong(weight -> Math.max(0, weight)).sum();
+        if (safeTotal == 0 || weightTotal == 0L) return allocation;
+        long[] remainders = new long[weights.size()];
+        int assigned = 0;
+        for (int index = 0; index < weights.size(); index++) {
+            long scaled = (long) safeTotal * Math.max(0, weights.get(index));
+            allocation[index] = (int) (scaled / weightTotal);
+            remainders[index] = scaled % weightTotal;
+            assigned += allocation[index];
+        }
+        for (int unit = assigned; unit < safeTotal; unit++) {
+            int selected = 0;
+            for (int index = 1; index < remainders.length; index++) {
+                if (remainders[index] > remainders[selected]) selected = index;
+            }
+            allocation[selected]++;
+            remainders[selected] = -1L;
+        }
+        return allocation;
     }
 
     static int queuedWorkAfterTransition(int queuedWork, Phase phase) {

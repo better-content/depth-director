@@ -179,12 +179,18 @@ final class DirectorRuntime {
     }
 
     private void updateEncounters(MinecraftServer server, long now) {
+        mergeRejoinedEncounters(server);
+        List<Encounter> localityChildren = new ArrayList<>();
         Iterator<Encounter> iterator = encounters.values().iterator();
         while (iterator.hasNext()) {
             Encounter encounter = iterator.next();
             List<ServerPlayer> players = encounter.players(server);
             if (players.isEmpty()) {
                 retire(encounter, iterator);
+                continue;
+            }
+            if (splitSeparatedEncounter(server, encounter, players, now, localityChildren)) {
+                iterator.remove();
                 continue;
             }
             List<ServerPlayer> underground = players.stream().filter(this::eligible).toList();
@@ -245,6 +251,52 @@ final class DirectorRuntime {
                     !underground.isEmpty(), true, 0) == DirectorPolicy.Phase.RETIRED) {
                 retire(encounter, iterator);
             }
+        }
+        localityChildren.forEach(child -> encounters.put(child.id, child));
+    }
+
+    private boolean splitSeparatedEncounter(MinecraftServer server, Encounter encounter, List<ServerPlayer> players,
+                                            long now, List<Encounter> children) {
+        if (players.size() != encounter.participants.size()) {
+            encounter.localitySeparatedSince = -1L;
+            return false;
+        }
+        List<List<ServerPlayer>> localGroups = groups(players);
+        if (localGroups.size() <= 1) {
+            encounter.localitySeparatedSince = -1L;
+            return false;
+        }
+        if (encounter.localitySeparatedSince < 0L) {
+            encounter.localitySeparatedSince = now;
+            return false;
+        }
+        if (now - encounter.localitySeparatedSince < DirectorConfig.LOCALITY_GRACE_SECONDS.get() * 20L) return false;
+
+        List<List<UUID>> participants = localGroups.stream()
+                .map(group -> group.stream().map(ServerPlayer::getUUID).sorted().toList()).toList();
+        List<Integer> weights = participants.stream().map(List::size).toList();
+        int[] remaining = DirectorPolicy.allocateConserved(encounter.remainingBudget, weights);
+        int[] spent = DirectorPolicy.allocateConserved(encounter.spentBudget, weights);
+        for (int index = 0; index < participants.size(); index++) {
+            Encounter child = Encounter.split(encounter, participants.get(index), remaining[index], spent[index]);
+            children.add(child);
+            child.participants.forEach(player -> participantEncounter.put(player, child.id));
+        }
+        return true;
+    }
+
+    private void mergeRejoinedEncounters(MinecraftServer server) {
+        Map<UUID, List<Encounter>> byFamily = new HashMap<>();
+        encounters.values().forEach(encounter -> byFamily.computeIfAbsent(encounter.family, ignored -> new ArrayList<>()).add(encounter));
+        for (List<Encounter> family : byFamily.values()) {
+            if (family.size() < 2) continue;
+            List<ServerPlayer> players = family.stream().flatMap(encounter -> encounter.players(server).stream()).toList();
+            int participantCount = family.stream().mapToInt(encounter -> encounter.participants.size()).sum();
+            if (players.size() != participantCount || groups(players).size() != 1) continue;
+            Encounter merged = Encounter.merge(family);
+            family.forEach(encounter -> encounters.remove(encounter.id));
+            encounters.put(merged.id, merged);
+            merged.participants.forEach(player -> participantEncounter.put(player, merged.id));
         }
     }
 
@@ -500,6 +552,7 @@ final class DirectorRuntime {
 
     private static final class Encounter {
         private final UUID id;
+        private final UUID family;
         private final List<UUID> participants;
         private final EcologyRegistry.Blend blend;
         private final double depth;
@@ -516,18 +569,73 @@ final class DirectorRuntime {
         private BlockPos packetTelegraphPosition;
         private int packetTelegraphSector = -1;
         private boolean packetTelegraphContinuation;
+        private long localitySeparatedSince = -1L;
         private final Map<ResourceLocation, Integer> packetCounts = new HashMap<>();
         private final Map<ResourceLocation, Integer> encounterCounts = new HashMap<>();
 
         private Encounter(UUID id, List<UUID> participants, EcologyRegistry.Blend blend, double depth,
                           DirectorPolicy.Profile profile, long phaseUntil) {
             this.id = id;
+            this.family = id;
             this.participants = new ArrayList<>(participants);
             this.blend = blend;
             this.depth = depth;
             this.profile = profile;
             this.phaseUntil = phaseUntil;
             this.remainingBudget = profile.budgetPerPlayer() * participants.size();
+        }
+
+        private Encounter(UUID id, UUID family, List<UUID> participants, EcologyRegistry.Blend blend, double depth,
+                          DirectorPolicy.Profile profile, long phaseUntil, int remainingBudget, int spentBudget) {
+            this.id = id;
+            this.family = family;
+            this.participants = new ArrayList<>(participants);
+            this.blend = blend;
+            this.depth = depth;
+            this.profile = profile;
+            this.phaseUntil = phaseUntil;
+            this.remainingBudget = Math.max(0, remainingBudget);
+            this.spentBudget = Math.max(0, spentBudget);
+        }
+
+        private static Encounter split(Encounter parent, List<UUID> participants, int remainingBudget, int spentBudget) {
+            Encounter child = new Encounter(UUID.randomUUID(), parent.family, participants, parent.blend, parent.depth,
+                    parent.profile, parent.phaseUntil, remainingBudget, spentBudget);
+            child.phase = parent.phase;
+            child.lastPacketAt = parent.lastPacketAt;
+            child.nextSector = parent.nextSector;
+            return child;
+        }
+
+        private static Encounter merge(List<Encounter> family) {
+            Encounter template = family.get(0);
+            List<UUID> participants = family.stream().flatMap(encounter -> encounter.participants.stream()).sorted().toList();
+            int remaining = family.stream().mapToInt(encounter -> encounter.remainingBudget).sum();
+            int spent = family.stream().mapToInt(encounter -> encounter.spentBudget).sum();
+            DirectorPolicy.Phase phase = family.stream().map(encounter -> encounter.phase)
+                    .max(Comparator.comparingInt(Encounter::phaseProgress)).orElse(DirectorPolicy.Phase.WARNING);
+            long phaseUntil = family.stream().filter(encounter -> encounter.phase == phase)
+                    .mapToLong(encounter -> encounter.phaseUntil).max().orElse(template.phaseUntil);
+            double depth = family.stream().mapToDouble(encounter -> encounter.depth * encounter.participants.size()).sum()
+                    / Math.max(1, participants.size());
+            Encounter merged = new Encounter(UUID.randomUUID(), template.family, participants, template.blend, depth,
+                    template.profile, phaseUntil, remaining, spent);
+            merged.phase = phase;
+            merged.lastPacketAt = family.stream().mapToLong(encounter -> encounter.lastPacketAt).max().orElse(-1L);
+            merged.nextSector = family.stream().mapToInt(encounter -> encounter.nextSector).min().orElse(0);
+            merged.heavySpawnedInPacket = family.stream().anyMatch(encounter -> encounter.heavySpawnedInPacket);
+            family.forEach(encounter -> encounter.encounterCounts.forEach((entity, count) ->
+                    merged.encounterCounts.merge(entity, count, Integer::sum)));
+            return merged;
+        }
+
+        private static int phaseProgress(DirectorPolicy.Phase phase) {
+            return switch (phase) {
+                case WARNING -> 0;
+                case SURGE -> 1;
+                case RECOVERY -> 2;
+                case RETIRED -> 3;
+            };
         }
 
         private List<ServerPlayer> players(MinecraftServer server) {

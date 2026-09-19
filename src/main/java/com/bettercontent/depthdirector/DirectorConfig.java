@@ -15,6 +15,7 @@ public final class DirectorConfig {
     public static final ForgeConfigSpec.IntValue SURFACE_RESERVE_DEPTH;
     public static final ForgeConfigSpec.IntValue SURFACE_DECAY_SECONDS;
     public static final ForgeConfigSpec.IntValue INJURY_RELIEF_DECAY_SECONDS;
+    public static final ForgeConfigSpec.IntValue LOCALITY_GRACE_SECONDS;
 
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -38,6 +39,10 @@ public final class DirectorConfig {
                         "Seconds for a one-time injury relief signal to decay toward its baseline after a newly observed maim.",
                         "Relief decays while injuries remain and after treatment; new maims renew it. Default: 180 seconds.")
                 .defineInRange("injuryReliefDecaySeconds", 180, 30, 1800);
+        LOCALITY_GRACE_SECONDS = builder.comment(
+                        "Seconds that encounter participants may be farther than groupRadius before their encounter separates.",
+                        "Separated encounters retain their apportioned spent and remaining budget; they merge when all participants reunite.")
+                .defineInRange("localityGraceSeconds", 10, 1, 60);
         builder.pop();
         SPEC = builder.build();
     }
