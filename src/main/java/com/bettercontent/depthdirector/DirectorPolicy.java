@@ -126,9 +126,11 @@ final class DirectorPolicy {
                             boolean routeOpen, int remainingBudget) {
         return switch (phase) {
             case WARNING -> now < phaseUntil ? Phase.WARNING
-                    : hasEligiblePlayers && routeOpen ? Phase.SURGE : Phase.RETIRED;
-            case SURGE -> !hasEligiblePlayers || now >= phaseUntil || remainingBudget <= 0 ? Phase.RECOVERY : Phase.SURGE;
+                    : hasEligiblePlayers && routeOpen ? Phase.SURGE : Phase.SUSPENDED;
+            case SURGE -> !hasEligiblePlayers ? Phase.SUSPENDED
+                    : now >= phaseUntil || remainingBudget <= 0 ? Phase.RECOVERY : Phase.SURGE;
             case RECOVERY -> now >= phaseUntil ? Phase.RETIRED : Phase.RECOVERY;
+            case SUSPENDED -> Phase.SUSPENDED;
             case RETIRED -> Phase.RETIRED;
         };
     }
@@ -139,7 +141,7 @@ final class DirectorPolicy {
                 NATIVE_PACKET_INTERVAL, false);
     }
 
-    enum Phase { WARNING, SURGE, RECOVERY, RETIRED }
+    enum Phase { WARNING, SURGE, RECOVERY, SUSPENDED, RETIRED }
 
     record ProfileSpec(int warningMinimumSeconds, int warningMaximumSeconds, int surgeSeconds,
                        int recoverySeconds, int deepBudgetPerPlayer, int deepActiveTargetPerPlayer,

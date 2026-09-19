@@ -82,7 +82,10 @@ final class DirectorRuntime {
         DirectorSavedData.get(server).reset(player);
         UUID encounterId = participantEncounter.remove(player);
         Encounter encounter = encounterId == null ? null : encounters.get(encounterId);
-        if (encounter != null) encounter.participants.remove(player);
+        if (encounter != null) {
+            encounter.participants.remove(player);
+            encounter.replacePursuitTarget();
+        }
     }
 
     String inspect(ServerPlayer player) {
@@ -175,7 +178,8 @@ final class DirectorRuntime {
             track.probeFailures(0);
             track.rerollJitter(random);
         }
-        playWarning(group.get(0).serverLevel(), group, encounter);
+        List<ServerPlayer> pursuit = encounter.pursuitPlayers(server);
+        if (!pursuit.isEmpty()) playWarning(pursuit.get(0).serverLevel(), pursuit, encounter);
     }
 
     private void updateEncounters(MinecraftServer server, long now) {
@@ -186,25 +190,37 @@ final class DirectorRuntime {
             Encounter encounter = iterator.next();
             List<ServerPlayer> players = encounter.players(server);
             if (players.isEmpty()) {
-                retire(encounter, iterator);
+                suspend(encounter, now);
                 continue;
             }
             if (splitSeparatedEncounter(server, encounter, players, now, localityChildren)) {
                 iterator.remove();
                 continue;
             }
-            List<ServerPlayer> underground = players.stream().filter(this::eligible).toList();
+            if (encounter.phase == DirectorPolicy.Phase.SUSPENDED) {
+                resumeIfPursuitAvailable(server, encounter, now);
+                continue;
+            }
+            List<ServerPlayer> underground = encounter.pursuitPlayers(server).stream().filter(this::eligible).toList();
+            if (underground.isEmpty() && encounter.phase != DirectorPolicy.Phase.RECOVERY) {
+                suspend(encounter, now);
+                continue;
+            }
             if (encounter.phase == DirectorPolicy.Phase.WARNING) {
-                if (now % 100L == 0L) playWarning(players.get(0).serverLevel(), players, encounter);
+                if (now % 100L == 0L) playWarning(underground.get(0).serverLevel(), underground, encounter);
                 if (now >= encounter.phaseUntil) {
                     boolean routeOpen = !underground.isEmpty()
                             && SpawnLocator.hasApproach(underground.get(0).serverLevel(), underground, random);
-                    encounter.phase = DirectorPolicy.transition(encounter.phase, now, encounter.phaseUntil,
+                    DirectorPolicy.Phase next = DirectorPolicy.transition(encounter.phase, now, encounter.phaseUntil,
                             !underground.isEmpty(), routeOpen, encounter.remainingBudget);
-                    if (encounter.phase == DirectorPolicy.Phase.RETIRED) {
+                    if (next == DirectorPolicy.Phase.SUSPENDED) {
+                        suspend(encounter, now);
+                    } else if (next == DirectorPolicy.Phase.RETIRED) {
+                        encounter.phase = next;
                         restoreFrozenPressure(server, encounter);
                         retire(encounter, iterator);
                     } else {
+                        encounter.phase = next;
                         encounter.phaseUntil = now + encounter.profile.surgeTicks();
                         encounter.lastPacketAt = -1L;
                     }
@@ -242,7 +258,9 @@ final class DirectorRuntime {
                     }
                 } else if ((encounter.lastPacketAt < 0L || now - encounter.lastPacketAt >= interval)
                         && active < activeLimit && encounter.queuedSpawns == 0) {
-                    beginPacketTelegraph(underground.get(0).serverLevel(), underground, encounter, now, false);
+                    if (!beginPacketTelegraph(underground.get(0).serverLevel(), underground, encounter, now, false)) {
+                        suspend(encounter, now);
+                    }
                 }
                 continue;
             }
@@ -313,7 +331,7 @@ final class DirectorRuntime {
         if (active.isEmpty()) return;
         for (int attempt = 0; attempt < allowance; attempt++) {
             Encounter encounter = active.get(DirectorPolicy.roundRobinIndex(roundRobinOffset, attempt, active.size()));
-            List<ServerPlayer> players = encounter.players(server).stream().filter(this::eligible).toList();
+            List<ServerPlayer> players = encounter.pursuitPlayers(server).stream().filter(this::eligible).toList();
             if (players.isEmpty() || encounter.queuedSpawns <= 0 || encounter.packetTelegraphUntil >= 0L) continue;
             BlockPos warnedApproach = encounter.packetTelegraphPosition;
             int warnedSector = encounter.packetTelegraphSector;
@@ -347,7 +365,9 @@ final class DirectorRuntime {
             encounter.spentBudget += result.cost();
             spawnsThisSecond++;
             if (encounter.queuedSpawns > 0) {
-                beginPacketTelegraph(players.get(0).serverLevel(), players, encounter, now, true);
+                if (!beginPacketTelegraph(players.get(0).serverLevel(), players, encounter, now, true)) {
+                    suspend(encounter, now);
+                }
             }
         }
         roundRobinOffset = DirectorPolicy.nextRoundRobinOffset(roundRobinOffset, active.size());
@@ -367,18 +387,19 @@ final class DirectorRuntime {
         });
     }
 
-    private void beginPacketTelegraph(ServerLevel level, List<ServerPlayer> players, Encounter encounter, long now,
-                                      boolean continuation) {
+    private boolean beginPacketTelegraph(ServerLevel level, List<ServerPlayer> players, Encounter encounter, long now,
+                                         boolean continuation) {
         cancelPacketTelegraph(encounter);
         int sector = encounter.profile.maximizeDirections() ? encounter.nextSector & 7 : -1;
-        SpawnLocator.approach(level, players, random, sector).ifPresent(position -> {
+        return SpawnLocator.approach(level, players, random, sector).map(position -> {
             encounter.packetTelegraphPosition = position;
             encounter.packetTelegraphSector = sector;
             encounter.packetTelegraphContinuation = continuation;
             encounter.packetTelegraphUntil = now + DirectorPolicy.PACKET_TELEGRAPH_TICKS;
             playEcologySound(level, position, encounter);
             playPacketTelegraph(level, players, encounter, now);
-        });
+            return true;
+        }).orElse(false);
     }
 
     private void playPacketTelegraph(ServerLevel level, List<ServerPlayer> players, Encounter encounter, long now) {
@@ -419,6 +440,24 @@ final class DirectorRuntime {
     private static void completePacketTelegraph(Encounter encounter) {
         encounter.packetTelegraphUntil = -1L;
         encounter.packetTelegraphContinuation = false;
+    }
+
+    private void suspend(Encounter encounter, long now) {
+        if (encounter.phase == DirectorPolicy.Phase.SUSPENDED) return;
+        encounter.suspendedPhase = encounter.phase;
+        encounter.suspendedTicks = Math.max(0L, encounter.phaseUntil - now);
+        encounter.phase = DirectorPolicy.Phase.SUSPENDED;
+        encounter.queuedSpawns = 0;
+        cancelPacketTelegraph(encounter);
+    }
+
+    private boolean resumeIfPursuitAvailable(MinecraftServer server, Encounter encounter, long now) {
+        List<ServerPlayer> pursuit = encounter.pursuitPlayers(server).stream().filter(this::eligible).toList();
+        if (pursuit.isEmpty() || !SpawnLocator.hasApproach(pursuit.get(0).serverLevel(), pursuit, random)) return false;
+        encounter.phase = encounter.suspendedPhase;
+        encounter.phaseUntil = now + encounter.suspendedTicks;
+        encounter.suspendedTicks = 0L;
+        return true;
     }
 
     private void beginRecovery(MinecraftServer server, Encounter encounter, long now) {
@@ -554,6 +593,7 @@ final class DirectorRuntime {
         private final UUID id;
         private final UUID family;
         private final List<UUID> participants;
+        private UUID pursuitTarget;
         private final EcologyRegistry.Blend blend;
         private final double depth;
         private final DirectorPolicy.Profile profile;
@@ -570,6 +610,8 @@ final class DirectorRuntime {
         private int packetTelegraphSector = -1;
         private boolean packetTelegraphContinuation;
         private long localitySeparatedSince = -1L;
+        private DirectorPolicy.Phase suspendedPhase = DirectorPolicy.Phase.WARNING;
+        private long suspendedTicks;
         private final Map<ResourceLocation, Integer> packetCounts = new HashMap<>();
         private final Map<ResourceLocation, Integer> encounterCounts = new HashMap<>();
 
@@ -578,6 +620,7 @@ final class DirectorRuntime {
             this.id = id;
             this.family = id;
             this.participants = new ArrayList<>(participants);
+            this.pursuitTarget = this.participants.stream().min(UUID::compareTo).orElse(null);
             this.blend = blend;
             this.depth = depth;
             this.profile = profile;
@@ -590,6 +633,7 @@ final class DirectorRuntime {
             this.id = id;
             this.family = family;
             this.participants = new ArrayList<>(participants);
+            this.pursuitTarget = this.participants.stream().min(UUID::compareTo).orElse(null);
             this.blend = blend;
             this.depth = depth;
             this.profile = profile;
@@ -604,6 +648,9 @@ final class DirectorRuntime {
             child.phase = parent.phase;
             child.lastPacketAt = parent.lastPacketAt;
             child.nextSector = parent.nextSector;
+            child.suspendedPhase = parent.suspendedPhase;
+            child.suspendedTicks = parent.suspendedTicks;
+            child.pursuitTarget = participants.contains(parent.pursuitTarget) ? parent.pursuitTarget : child.pursuitTarget;
             return child;
         }
 
@@ -624,6 +671,11 @@ final class DirectorRuntime {
             merged.lastPacketAt = family.stream().mapToLong(encounter -> encounter.lastPacketAt).max().orElse(-1L);
             merged.nextSector = family.stream().mapToInt(encounter -> encounter.nextSector).min().orElse(0);
             merged.heavySpawnedInPacket = family.stream().anyMatch(encounter -> encounter.heavySpawnedInPacket);
+            merged.suspendedPhase = family.stream().map(encounter -> encounter.suspendedPhase)
+                    .max(Comparator.comparingInt(Encounter::phaseProgress)).orElse(DirectorPolicy.Phase.WARNING);
+            merged.suspendedTicks = family.stream().mapToLong(encounter -> encounter.suspendedTicks).max().orElse(0L);
+            merged.pursuitTarget = family.stream().map(encounter -> encounter.pursuitTarget)
+                    .filter(participants::contains).min(UUID::compareTo).orElse(merged.pursuitTarget);
             family.forEach(encounter -> encounter.encounterCounts.forEach((entity, count) ->
                     merged.encounterCounts.merge(entity, count, Integer::sum)));
             return merged;
@@ -634,12 +686,25 @@ final class DirectorRuntime {
                 case WARNING -> 0;
                 case SURGE -> 1;
                 case RECOVERY -> 2;
-                case RETIRED -> 3;
+                case SUSPENDED -> 3;
+                case RETIRED -> 4;
             };
         }
 
         private List<ServerPlayer> players(MinecraftServer server) {
             return participants.stream().map(server.getPlayerList()::getPlayer).filter(java.util.Objects::nonNull).toList();
+        }
+
+        private List<ServerPlayer> pursuitPlayers(MinecraftServer server) {
+            if (pursuitTarget == null) return List.of();
+            ServerPlayer player = server.getPlayerList().getPlayer(pursuitTarget);
+            return player == null ? List.of() : List.of(player);
+        }
+
+        private void replacePursuitTarget() {
+            if (pursuitTarget == null || !participants.contains(pursuitTarget)) {
+                pursuitTarget = participants.stream().min(UUID::compareTo).orElse(null);
+            }
         }
     }
 

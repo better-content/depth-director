@@ -221,6 +221,18 @@ class DirectorSimulationTest {
     }
 
     @Test
+    void technicalPursuitFailuresSuspendWithoutRetiringHostileIntent() {
+        assertEquals(DirectorPolicy.Phase.SUSPENDED, DirectorPolicy.transition(DirectorPolicy.Phase.WARNING,
+                200, 200, false, false, 40));
+        assertEquals(DirectorPolicy.Phase.SUSPENDED, DirectorPolicy.transition(DirectorPolicy.Phase.SURGE,
+                200, 300, false, true, 40));
+        assertEquals(DirectorPolicy.Phase.SUSPENDED, DirectorPolicy.transition(DirectorPolicy.Phase.SUSPENDED,
+                10_000, 0, true, true, 40));
+        assertEquals(DirectorPolicy.Phase.SURGE, DirectorPolicy.transition(DirectorPolicy.Phase.WARNING,
+                200, 200, true, true, 40));
+    }
+
+    @Test
     void optionalRosterEntriesAreEligibilityAware() {
         EcologyDefinition sculk = ECOLOGIES.get("sculk");
         assertDoesNotThrow(() -> {
