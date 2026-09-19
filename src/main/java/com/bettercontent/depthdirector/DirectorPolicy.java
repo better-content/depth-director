@@ -86,6 +86,11 @@ final class DirectorPolicy {
         return Math.floorMod(offset + 1, Math.max(1, encounterCount));
     }
 
+    static int nextSectorAfterSpawn(int warnedSector, boolean maximizeDirections, boolean spawned) {
+        if (!maximizeDirections || !spawned) return warnedSector;
+        return Math.floorMod(warnedSector + 1, 8);
+    }
+
     static int queuedWorkAfterTransition(int queuedWork, Phase phase) {
         return phase == Phase.RECOVERY || phase == Phase.RETIRED
                 ? 0 : Math.max(0, queuedWork);

@@ -212,6 +212,15 @@ class DirectorSimulationTest {
     }
 
     @Test
+    void warnedSectorOnlyAdvancesAfterARevalidatedSpawn() {
+        assertEquals(3, DirectorPolicy.nextSectorAfterSpawn(3, true, false),
+                "an invalid warned approach must cancel or rewarn before changing direction");
+        assertEquals(4, DirectorPolicy.nextSectorAfterSpawn(3, true, true));
+        assertEquals(0, DirectorPolicy.nextSectorAfterSpawn(7, true, true));
+        assertEquals(-1, DirectorPolicy.nextSectorAfterSpawn(-1, false, true));
+    }
+
+    @Test
     void optionalRosterEntriesAreEligibilityAware() {
         EcologyDefinition sculk = ECOLOGIES.get("sculk");
         assertDoesNotThrow(() -> {

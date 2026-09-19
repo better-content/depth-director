@@ -46,11 +46,15 @@ final class SpawnLocator {
     }
 
     static Optional<BlockPos> approach(ServerLevel level, List<ServerPlayer> players, RandomSource random) {
+        return approach(level, players, random, -1);
+    }
+
+    static Optional<BlockPos> approach(ServerLevel level, List<ServerPlayer> players, RandomSource random, int sector) {
         if (players.isEmpty()) return Optional.empty();
         Mob probe = EntityType.ZOMBIE.create(level);
         if (probe == null) return Optional.empty();
         ensureApproachRange(probe);
-        Candidate candidate = candidate(level, players, players.get(random.nextInt(players.size())).position(), random, -1, probe);
+        Candidate candidate = candidate(level, players, players.get(random.nextInt(players.size())).position(), random, sector, probe);
         probe.discard();
         return candidate == null ? Optional.empty() : Optional.of(candidate.position);
     }
@@ -82,9 +86,15 @@ final class SpawnLocator {
     static SpawnResult spawnAt(ServerLevel level, List<ServerPlayer> players, EcologyRegistry.Blend blend,
                                double depth, RandomSource random, BlockPos position, boolean allowHeavy,
                                int maximumCost) {
+        return spawnAt(level, players, blend, depth, random, position, allowHeavy, maximumCost, ignored -> true);
+    }
+
+    static SpawnResult spawnAt(ServerLevel level, List<ServerPlayer> players, EcologyRegistry.Blend blend,
+                               double depth, RandomSource random, BlockPos position, boolean allowHeavy,
+                               int maximumCost, Predicate<EcologyDefinition.Entry> selectable) {
         if (players.isEmpty()) return SpawnResult.failed();
         Selection selection = blend == null ? nativeSelection(level, position, random)
-                : authoredSelection(blend, depth, random, allowHeavy, maximumCost, ignored -> true);
+                : authoredSelection(blend, depth, random, allowHeavy, maximumCost, selectable);
         if (selection == null || selection.cost > maximumCost || selection.type.is(DENIED)) return SpawnResult.failed();
         Mob mob = selection.type.create(level) instanceof Mob created ? created : null;
         if (mob == null) return SpawnResult.failed();

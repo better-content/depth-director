@@ -226,16 +226,17 @@ final class DirectorRuntime {
                 if (encounter.packetTelegraphUntil >= 0L) {
                     playPacketTelegraph(underground.get(0).serverLevel(), underground, encounter, now);
                     if (DirectorPolicy.packetTelegraphComplete(now, encounter.packetTelegraphUntil)) {
-                        int packet = DirectorPolicy.packetSize(active, activeLimit, underground.size());
-                        encounter.queuedSpawns = packet;
-                        encounter.heavySpawnedInPacket = false;
-                        encounter.packetCounts.clear();
-                        encounter.lastPacketAt = now;
-                        cancelPacketTelegraph(encounter);
+                        if (!encounter.packetTelegraphContinuation) {
+                            encounter.queuedSpawns = DirectorPolicy.packetSize(active, activeLimit, underground.size());
+                            encounter.heavySpawnedInPacket = false;
+                            encounter.packetCounts.clear();
+                            encounter.lastPacketAt = now;
+                        }
+                        completePacketTelegraph(encounter);
                     }
                 } else if ((encounter.lastPacketAt < 0L || now - encounter.lastPacketAt >= interval)
                         && active < activeLimit && encounter.queuedSpawns == 0) {
-                    beginPacketTelegraph(underground.get(0).serverLevel(), underground, encounter, now);
+                    beginPacketTelegraph(underground.get(0).serverLevel(), underground, encounter, now, false);
                 }
                 continue;
             }
@@ -254,23 +255,36 @@ final class DirectorRuntime {
         if (allowance <= 0 || encounters.isEmpty()) return;
         List<Encounter> active = encounters.values().stream()
                 .filter(encounter -> encounter.phase == DirectorPolicy.Phase.SURGE
+                        && encounter.packetTelegraphUntil < 0L
                         && encounter.queuedSpawns > 0 && encounter.remainingBudget > 0)
                 .toList();
         if (active.isEmpty()) return;
         for (int attempt = 0; attempt < allowance; attempt++) {
             Encounter encounter = active.get(DirectorPolicy.roundRobinIndex(roundRobinOffset, attempt, active.size()));
             List<ServerPlayer> players = encounter.players(server).stream().filter(this::eligible).toList();
-            if (players.isEmpty() || encounter.queuedSpawns <= 0) continue;
-            int sector = encounter.profile.maximizeDirections() ? encounter.nextSector++ & 7 : -1;
-            SpawnLocator.SpawnResult result = SpawnLocator.spawn(players.get(0).serverLevel(), players,
-                    encounter.blend, encounter.depth, random, sector, !encounter.heavySpawnedInPacket,
+            if (players.isEmpty() || encounter.queuedSpawns <= 0 || encounter.packetTelegraphUntil >= 0L) continue;
+            BlockPos warnedApproach = encounter.packetTelegraphPosition;
+            int warnedSector = encounter.packetTelegraphSector;
+            if (warnedApproach == null) {
+                encounter.queuedSpawns = 0;
+                continue;
+            }
+            SpawnLocator.SpawnResult result = SpawnLocator.spawnAt(players.get(0).serverLevel(), players,
+                    encounter.blend, encounter.depth, random, warnedApproach, !encounter.heavySpawnedInPacket,
                     encounter.remainingBudget, entry -> entry.allowsPacketCount(
                             encounter.packetCounts.getOrDefault(entry.entity(), 0))
                             && entry.allowsEncounterCount(
                             encounter.encounterCounts.getOrDefault(entry.entity(), 0),
                             encounter.participants.size()));
             encounter.queuedSpawns--;
-            if (!result.spawned()) continue;
+            if (!result.spawned()) {
+                // The warned corridor did not admit this selected mob. Cancel before direction changes.
+                encounter.queuedSpawns = 0;
+                cancelPacketTelegraph(encounter);
+                continue;
+            }
+            encounter.nextSector = DirectorPolicy.nextSectorAfterSpawn(warnedSector,
+                    encounter.profile.maximizeDirections(), true);
             registerMob(result.mob());
             if (result.role() == EcologyDefinition.Role.HEAVY) encounter.heavySpawnedInPacket = true;
             if (result.entity() != null) {
@@ -280,6 +294,9 @@ final class DirectorRuntime {
             encounter.remainingBudget = Math.max(0, encounter.remainingBudget - result.cost());
             encounter.spentBudget += result.cost();
             spawnsThisSecond++;
+            if (encounter.queuedSpawns > 0) {
+                beginPacketTelegraph(players.get(0).serverLevel(), players, encounter, now, true);
+            }
         }
         roundRobinOffset = DirectorPolicy.nextRoundRobinOffset(roundRobinOffset, active.size());
     }
@@ -298,9 +315,14 @@ final class DirectorRuntime {
         });
     }
 
-    private void beginPacketTelegraph(ServerLevel level, List<ServerPlayer> players, Encounter encounter, long now) {
-        SpawnLocator.approach(level, players, random).ifPresent(position -> {
+    private void beginPacketTelegraph(ServerLevel level, List<ServerPlayer> players, Encounter encounter, long now,
+                                      boolean continuation) {
+        cancelPacketTelegraph(encounter);
+        int sector = encounter.profile.maximizeDirections() ? encounter.nextSector & 7 : -1;
+        SpawnLocator.approach(level, players, random, sector).ifPresent(position -> {
             encounter.packetTelegraphPosition = position;
+            encounter.packetTelegraphSector = sector;
+            encounter.packetTelegraphContinuation = continuation;
             encounter.packetTelegraphUntil = now + DirectorPolicy.PACKET_TELEGRAPH_TICKS;
             playEcologySound(level, position, encounter);
             playPacketTelegraph(level, players, encounter, now);
@@ -338,6 +360,13 @@ final class DirectorRuntime {
     private static void cancelPacketTelegraph(Encounter encounter) {
         encounter.packetTelegraphUntil = -1L;
         encounter.packetTelegraphPosition = null;
+        encounter.packetTelegraphSector = -1;
+        encounter.packetTelegraphContinuation = false;
+    }
+
+    private static void completePacketTelegraph(Encounter encounter) {
+        encounter.packetTelegraphUntil = -1L;
+        encounter.packetTelegraphContinuation = false;
     }
 
     private void beginRecovery(MinecraftServer server, Encounter encounter, long now) {
@@ -485,6 +514,8 @@ final class DirectorRuntime {
         private boolean heavySpawnedInPacket;
         private long packetTelegraphUntil = -1L;
         private BlockPos packetTelegraphPosition;
+        private int packetTelegraphSector = -1;
+        private boolean packetTelegraphContinuation;
         private final Map<ResourceLocation, Integer> packetCounts = new HashMap<>();
         private final Map<ResourceLocation, Integer> encounterCounts = new HashMap<>();
 
