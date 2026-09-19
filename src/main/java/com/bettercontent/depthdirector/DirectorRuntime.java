@@ -1,6 +1,9 @@
 package com.bettercontent.depthdirector;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceLocation;
@@ -43,6 +46,7 @@ final class DirectorRuntime {
     private final Set<UUID> directorMobs = new HashSet<>();
     private int spawnsThisSecond;
     private int roundRobinOffset;
+    private boolean restored;
 
     private DirectorRuntime() {}
 
@@ -52,6 +56,7 @@ final class DirectorRuntime {
         directorMobs.clear();
         spawnsThisSecond = 0;
         roundRobinOffset = 0;
+        restored = false;
     }
 
     void reset(long seed) {
@@ -60,6 +65,7 @@ final class DirectorRuntime {
     }
 
     void tick(MinecraftServer server) {
+        if (!restored) { restore(server); restored = true; }
         long now = server.overworld().getGameTime();
         if (now % 20L == 0L) {
             spawnsThisSecond = 0;
@@ -69,6 +75,38 @@ final class DirectorRuntime {
         }
         updateEncounters(server, now);
         processSpawnQueue(server, now);
+    }
+
+    void persist(MinecraftServer server) {
+        CompoundTag root = new CompoundTag();
+        ListTag list = new ListTag();
+        encounters.values().forEach(e -> {
+            CompoundTag tag = new CompoundTag(); tag.putUUID("Id", e.id); tag.putUUID("Family", e.family);
+            ListTag people = new ListTag(); e.participants.forEach(id -> { CompoundTag p = new CompoundTag(); p.putUUID("Id", id); people.add(p); }); tag.put("Participants", people);
+            if (e.pursuitTarget != null) tag.putUUID("Target", e.pursuitTarget);
+            tag.putDouble("Depth", e.depth); tag.putString("Phase", e.phase.name()); tag.putLong("PhaseUntil", e.phaseUntil);
+            tag.putLong("LastPacket", e.lastPacketAt); tag.putInt("Remaining", e.remainingBudget); tag.putInt("Spent", e.spentBudget);
+            tag.putInt("NextSector", e.nextSector); tag.putString("SuspendedPhase", e.suspendedPhase.name()); tag.putLong("SuspendedTicks", e.suspendedTicks);
+            tag.putString("Suspension", e.suspensionReason); tag.putString("Failure", e.lastFailure);
+            tag.putInt("Warning", e.profile.warningTicks()); tag.putInt("Surge", e.profile.surgeTicks()); tag.putInt("Recovery", e.profile.recoveryTicks());
+            tag.putInt("Budget", e.profile.budgetPerPlayer()); tag.putInt("Active", e.profile.activeTargetPerPlayer()); tag.putInt("Interval", e.profile.packetIntervalTicks()); tag.putBoolean("Directions", e.profile.maximizeDirections());
+            list.add(tag);
+        }); root.put("List", list); DirectorSavedData.get(server).encounters(root);
+    }
+
+    private void restore(MinecraftServer server) {
+        ListTag list = DirectorSavedData.get(server).encounters().getList("List", Tag.TAG_COMPOUND);
+        for (int i = 0; i < list.size(); i++) {
+            CompoundTag t = list.getCompound(i); List<UUID> people = new ArrayList<>();
+            ListTag p = t.getList("Participants", Tag.TAG_COMPOUND); for (int j = 0; j < p.size(); j++) if (p.getCompound(j).hasUUID("Id")) people.add(p.getCompound(j).getUUID("Id"));
+            if (people.isEmpty() || !t.hasUUID("Id")) continue;
+            DirectorPolicy.Profile profile = new DirectorPolicy.Profile(t.getInt("Warning"), t.getInt("Surge"), t.getInt("Recovery"), t.getInt("Budget"), t.getInt("Active"), t.getInt("Interval"), t.getBoolean("Directions"));
+            Encounter e = new Encounter(t.getUUID("Id"), t.hasUUID("Family") ? t.getUUID("Family") : t.getUUID("Id"), people, null, t.getDouble("Depth"), profile, t.getLong("PhaseUntil"), t.getInt("Remaining"), t.getInt("Spent"));
+            try { e.phase = DirectorPolicy.Phase.valueOf(t.getString("Phase")); } catch (IllegalArgumentException ignored) { continue; }
+            e.lastPacketAt = t.getLong("LastPacket"); e.nextSector = t.getInt("NextSector"); e.suspendedTicks = t.getLong("SuspendedTicks"); e.suspensionReason = t.getString("Suspension"); e.lastFailure = t.getString("Failure");
+            try { e.suspendedPhase = DirectorPolicy.Phase.valueOf(t.getString("SuspendedPhase")); } catch (IllegalArgumentException ignored) { }
+            if (t.hasUUID("Target")) e.pursuitTarget = t.getUUID("Target"); encounters.put(e.id, e); e.participants.forEach(id -> participantEncounter.put(id, e.id));
+        }
     }
 
     void registerMob(Mob mob) {

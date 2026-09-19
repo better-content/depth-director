@@ -45,6 +45,7 @@ public final class DepthDirectorEvents {
 
     @SubscribeEvent
     public static void serverStopped(ServerStoppedEvent event) {
+        DirectorRuntime.INSTANCE.persist(event.getServer());
         DirectorRuntime.INSTANCE.reset();
     }
 

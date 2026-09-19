@@ -13,6 +13,10 @@ import java.util.UUID;
 public final class DirectorSavedData extends SavedData {
     private static final String NAME = "depth_director_tracks";
     private final Map<UUID, Track> tracks = new HashMap<>();
+    private CompoundTag encounters = new CompoundTag();
+
+    public CompoundTag encounters() { return encounters.copy(); }
+    public void encounters(CompoundTag value) { encounters = value.copy(); setDirty(); }
 
     public static DirectorSavedData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(DirectorSavedData::load, DirectorSavedData::new, NAME);
@@ -40,6 +44,7 @@ public final class DirectorSavedData extends SavedData {
 
     public static DirectorSavedData load(CompoundTag root) {
         DirectorSavedData data = new DirectorSavedData();
+        data.encounters = root.getCompound("Encounters").copy();
         ListTag list = root.getList("Tracks", Tag.TAG_COMPOUND);
         for (int index = 0; index < list.size(); index++) {
             CompoundTag entry = list.getCompound(index);
@@ -71,6 +76,7 @@ public final class DirectorSavedData extends SavedData {
             list.add(entry);
         });
         root.put("Tracks", list);
+        root.put("Encounters", encounters.copy());
         return root;
     }
 
