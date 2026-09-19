@@ -573,6 +573,9 @@ final class DirectorRuntime {
 
     private void retire(Encounter encounter, Iterator<Encounter> iterator) {
         encounter.participants.forEach(player -> participantEncounter.remove(player, encounter.id));
+        // The mobs remain ordinary hostile entities after the encounter ends; stop
+        // attributing newly loaded or missing entities to the retired encounter.
+        mobEncounter.entrySet().removeIf(entry -> entry.getValue().equals(encounter.id));
         iterator.remove();
     }
 
