@@ -35,6 +35,7 @@ import java.util.function.Predicate;
 final class SpawnLocator {
     static final String PROVENANCE_TAG = "depth_director_spawned";
     static final String PROVENANCE_NBT = "DepthDirectorSpawned";
+    static final String TARGET_NBT = "DepthDirectorTarget";
     static final TagKey<EntityType<?>> DENIED = TagKey.create(Registries.ENTITY_TYPE,
             new ResourceLocation(DepthDirectorMod.MOD_ID, "denied"));
     private static final UUID APPROACH_RANGE_MODIFIER = UUID.fromString("6628878d-4b58-4431-b877-baa7027270bc");
@@ -120,13 +121,38 @@ final class SpawnLocator {
                 MobSpawnType.EVENT, null, null);
         mob.addTag(PROVENANCE_TAG);
         mob.getPersistentData().putBoolean(PROVENANCE_NBT, true);
-        mob.setTarget(candidate.target);
+        bindCombatTarget(mob, candidate.target);
         if (!level.addFreshEntity(mob)) {
             mob.discard();
             return SpawnResult.failed();
         }
-        mob.setTarget(candidate.target);
+        bindCombatTarget(mob, candidate.target);
         return new SpawnResult(true, mob, selection.entity, selection.cost, selection.role);
+    }
+
+    static void restoreDirectorMob(Mob mob) {
+        if (!mob.getPersistentData().getBoolean(PROVENANCE_NBT)) return;
+        if (!(mob.level() instanceof ServerLevel level)) return;
+        mob.setNoAi(false);
+        mob.setInvulnerable(false);
+        if (!mob.getPersistentData().hasUUID(TARGET_NBT)) {
+            mob.setTarget(null);
+            return;
+        }
+        ServerPlayer target = level.getServer().getPlayerList()
+                .getPlayer(mob.getPersistentData().getUUID(TARGET_NBT));
+        if (target != null && target.isAlive() && target.level() == mob.level()) {
+            mob.setTarget(target);
+        } else {
+            mob.setTarget(null);
+        }
+    }
+
+    private static void bindCombatTarget(Mob mob, ServerPlayer target) {
+        mob.setNoAi(false);
+        mob.setInvulnerable(false);
+        mob.getPersistentData().putUUID(TARGET_NBT, target.getUUID());
+        mob.setTarget(target);
     }
 
     static void ensureApproachRange(Mob mob) {

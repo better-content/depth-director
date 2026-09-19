@@ -73,6 +73,7 @@ final class DirectorRuntime {
     void registerMob(Mob mob) {
         if (mob.getPersistentData().getBoolean(SpawnLocator.PROVENANCE_NBT) || mob.getTags().contains(SpawnLocator.PROVENANCE_TAG)) {
             directorMobs.add(mob.getUUID());
+            SpawnLocator.restoreDirectorMob(mob);
         }
     }
 
@@ -484,7 +485,12 @@ final class DirectorRuntime {
     }
 
     private void cleanupMobs(MinecraftServer server) {
-        directorMobs.removeIf(id -> findEntity(server, id) == null);
+        directorMobs.removeIf(id -> {
+            Entity entity = findEntity(server, id);
+            if (!(entity instanceof Mob mob)) return true;
+            SpawnLocator.restoreDirectorMob(mob);
+            return false;
+        });
     }
 
     private static Entity findEntity(MinecraftServer server, UUID id) {

@@ -30,6 +30,7 @@ public final class DepthDirectorGameTests {
     private static final BlockPos PLAYER = new BlockPos(3, 1, 3);
     private static final BlockPos VISIBLE_PLAYER = new BlockPos(9, 1, 11);
     private static final BlockPos SPAWN = new BlockPos(11, 1, 11);
+    private static final BlockPos SECOND_SPAWN = new BlockPos(11, 1, 10);
     private static final BlockPos ROOF = new BlockPos(11, 5, 11);
     private static final BlockPos TORCH = new BlockPos(10, 1, 11);
 
@@ -188,17 +189,39 @@ public final class DepthDirectorGameTests {
             SpawnLocator.SpawnResult result = SpawnLocator.spawnAt(helper.getLevel(), List.of(player),
                     new EcologyRegistry.Blend(zombieOnly, null, 0.0), 1.0, RandomSource.create(71L),
                     helper.absolutePos(SPAWN), true, 8);
+            SpawnLocator.SpawnResult second = SpawnLocator.spawnAt(helper.getLevel(), List.of(player),
+                    new EcologyRegistry.Blend(zombieOnly, null, 0.0), 1.0, RandomSource.create(73L),
+                    helper.absolutePos(SECOND_SPAWN), true, 8);
             helper.assertTrue(result.spawned(), "EVENT-authored spawn must succeed in valid geometry");
+            helper.assertTrue(second.spawned(), "a second Director group member must materialize independently");
             helper.assertTrue(result.mob() != null && result.mob().getType() == EntityType.ZOMBIE,
                     "the authored test roster must produce a real zombie");
             helper.assertTrue(result.mob() != null && result.mob().getTarget() == player,
                     "spawn must target the nearest eligible player");
+            helper.assertTrue(result.mob() != null && !result.mob().isNoAi() && !result.mob().isInvulnerable(),
+                    "materialized Director mobs must be damageable and have ordinary AI");
             helper.assertTrue(result.mob() != null && result.mob().getTags().contains(SpawnLocator.PROVENANCE_TAG),
                     "spawn must carry the provenance scoreboard tag");
             helper.assertTrue(result.mob() != null
                             && result.mob().getPersistentData().getBoolean(SpawnLocator.PROVENANCE_NBT),
                     "spawn must carry the persistent provenance marker");
+            helper.assertTrue(result.mob() != null
+                            && result.mob().getPersistentData().hasUUID(SpawnLocator.TARGET_NBT),
+                    "spawn must persist its assigned pursuit target for reload restoration");
+            if (result.mob() != null) {
+                result.mob().setTarget(null);
+                result.mob().setNoAi(true);
+                result.mob().setInvulnerable(true);
+                SpawnLocator.restoreDirectorMob(result.mob());
+            }
+            helper.assertTrue(result.mob() != null && result.mob().getTarget() == player
+                            && !result.mob().isNoAi() && !result.mob().isInvulnerable(),
+                    "provenance restoration must recover targetable, damageable AI after a reload-like reset");
+            helper.assertTrue(second.mob() != null && second.mob().getTarget() == player
+                            && !second.mob().isNoAi() && !second.mob().isInvulnerable(),
+                    "other materialized group members must retain independent combat state");
             if (result.mob() != null) result.mob().discard();
+            if (second.mob() != null) second.mob().discard();
             finish(helper, player);
         });
     }
