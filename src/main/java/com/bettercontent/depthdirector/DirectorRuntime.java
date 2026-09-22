@@ -96,6 +96,19 @@ final class DirectorRuntime {
             tag.putInt("Warning", e.profile.warningTicks()); tag.putInt("Surge", e.profile.surgeTicks()); tag.putInt("Recovery", e.profile.recoveryTicks());
             tag.putInt("Budget", e.profile.budgetPerPlayer()); tag.putInt("Active", e.profile.activeTargetPerPlayer()); tag.putInt("Interval", e.profile.packetIntervalTicks()); tag.putBoolean("Directions", e.profile.maximizeDirections());
             tag.putInt("Queued", e.queuedSpawns); tag.putInt("PacketSector", e.packetTelegraphSector);
+            tag.putInt("PacketStateVersion", 1);
+            tag.putLong("PacketTelegraphUntil", e.packetTelegraphUntil);
+            tag.putBoolean("PacketContinuation", e.packetTelegraphContinuation);
+            tag.putBoolean("HeavySpawned", e.heavySpawnedInPacket);
+            tag.putBoolean("HasPacketPosition", e.packetTelegraphPosition != null);
+            if (e.packetTelegraphPosition != null) {
+                tag.putInt("PacketX", e.packetTelegraphPosition.getX());
+                tag.putInt("PacketY", e.packetTelegraphPosition.getY());
+                tag.putInt("PacketZ", e.packetTelegraphPosition.getZ());
+            }
+            CompoundTag packetCounts = new CompoundTag();
+            e.packetCounts.forEach((id, count) -> packetCounts.putInt(id.toString(), count));
+            tag.put("PacketCounts", packetCounts);
             if (e.blend != null) {
                 tag.putString("BlendPrimary", e.blend.primary().id().toString());
                 if (e.blend.secondary() != null) tag.putString("BlendSecondary", e.blend.secondary().id().toString());
@@ -119,8 +132,38 @@ final class DirectorRuntime {
             Encounter e = new Encounter(t.getUUID("Id"), t.hasUUID("Family") ? t.getUUID("Family") : t.getUUID("Id"), people, blend, t.getDouble("Depth"), profile, t.getLong("PhaseUntil"), t.getInt("Remaining"), t.getInt("Spent"));
             try { e.phase = DirectorPolicy.Phase.valueOf(t.getString("Phase")); } catch (IllegalArgumentException ignored) { continue; }
             e.lastPacketAt = t.getLong("LastPacket"); e.nextSector = t.getInt("NextSector"); e.suspendedTicks = t.getLong("SuspendedTicks"); e.suspensionReason = t.getString("Suspension"); e.lastFailure = t.getString("Failure");
-            e.queuedSpawns = Math.max(0, t.getInt("Queued"));
             CompoundTag counts = t.getCompound("Counts"); for (String key : counts.getAllKeys()) try { e.encounterCounts.put(new ResourceLocation(key), counts.getInt(key)); } catch (RuntimeException ignored) { }
+            CompoundTag packetCounts = t.getCompound("PacketCounts");
+            Map<ResourceLocation, Integer> restoredPacketCounts = new HashMap<>();
+            for (String key : packetCounts.getAllKeys()) try {
+                restoredPacketCounts.put(new ResourceLocation(key), packetCounts.getInt(key));
+            } catch (RuntimeException ignored) { }
+            boolean hasPacketCoordinates = t.getBoolean("HasPacketPosition")
+                    && t.contains("PacketX", Tag.TAG_INT) && t.contains("PacketY", Tag.TAG_INT)
+                    && t.contains("PacketZ", Tag.TAG_INT);
+            BlockPos packetPosition = hasPacketCoordinates
+                    ? new BlockPos(t.getInt("PacketX"), t.getInt("PacketY"), t.getInt("PacketZ")) : null;
+            boolean packetStateComplete = t.contains("PacketStateVersion", Tag.TAG_INT)
+                    && t.contains("PacketTelegraphUntil", Tag.TAG_LONG)
+                    && t.contains("PacketContinuation", Tag.TAG_BYTE)
+                    && t.contains("HeavySpawned", Tag.TAG_BYTE)
+                    && t.contains("PacketSector", Tag.TAG_INT)
+                    && t.contains("HasPacketPosition", Tag.TAG_BYTE)
+                    && t.contains("PacketCounts", Tag.TAG_COMPOUND)
+                    && (!t.getBoolean("HasPacketPosition") || hasPacketCoordinates);
+            EncounterPersistencePolicy.PacketState packet = EncounterPersistencePolicy.restorePacket(
+                    packetStateComplete ? t.getInt("PacketStateVersion") : 0,
+                    t.getLong("PacketTelegraphUntil"), packetPosition,
+                    t.getInt("PacketSector"),
+                    t.getBoolean("PacketContinuation"), t.getInt("Queued"), t.getBoolean("HeavySpawned"),
+                    restoredPacketCounts, t.contains("PacketCounts", Tag.TAG_COMPOUND), e.encounterCounts);
+            e.packetTelegraphUntil = packet.telegraphUntil();
+            e.packetTelegraphPosition = packet.position();
+            e.packetTelegraphSector = packet.sector();
+            e.packetTelegraphContinuation = packet.continuation();
+            e.queuedSpawns = packet.queued();
+            e.heavySpawnedInPacket = packet.heavySpawned();
+            e.packetCounts.putAll(packet.packetCounts());
             try { e.suspendedPhase = DirectorPolicy.Phase.valueOf(t.getString("SuspendedPhase")); } catch (IllegalArgumentException ignored) { }
             if (t.hasUUID("Target")) e.pursuitTarget = t.getUUID("Target"); encounters.put(e.id, e); e.participants.forEach(id -> participantEncounter.put(id, e.id));
         }
