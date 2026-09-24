@@ -10,6 +10,7 @@ import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
@@ -40,6 +41,28 @@ public final class DepthDirectorEvents {
         if (event.getEntity() instanceof Mob mob) DirectorRuntime.INSTANCE.removeMob(mob.getUUID());
         if (event.getEntity() instanceof ServerPlayer player) {
             DirectorRuntime.INSTANCE.playerDied(player.server, player.getUUID());
+        }
+    }
+
+    @SubscribeEvent
+    public static void playerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            DirectorRuntime.INSTANCE.playerLoggedIn(player);
+        }
+    }
+
+    @SubscribeEvent
+    public static void playerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            DirectorRuntime.INSTANCE.dimensionChanged(player.getUUID(), event.getFrom().location(),
+                    player.serverLevel().dimension().location());
+        }
+    }
+
+    @SubscribeEvent
+    public static void playerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            DirectorRuntime.INSTANCE.playerLoggedOut(player.getUUID());
         }
     }
 

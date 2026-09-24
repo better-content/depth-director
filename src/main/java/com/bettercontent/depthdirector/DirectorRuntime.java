@@ -45,6 +45,7 @@ final class DirectorRuntime {
     private final Map<UUID, UUID> participantEncounter = new HashMap<>();
     private final Set<UUID> directorMobs = new HashSet<>();
     private final Map<UUID, UUID> mobEncounter = new HashMap<>();
+    private final FixedBreachAuthorizations fixedBreachAuthorized = new FixedBreachAuthorizations();
     private int spawnsThisSecond;
     private int roundRobinOffset;
     private boolean restored;
@@ -56,6 +57,7 @@ final class DirectorRuntime {
         participantEncounter.clear();
         directorMobs.clear();
         mobEncounter.clear();
+        fixedBreachAuthorized.clear();
         spawnsThisSecond = 0;
         roundRobinOffset = 0;
         restored = false;
@@ -188,6 +190,17 @@ final class DirectorRuntime {
 
     void removeMob(UUID id) { directorMobs.remove(id); mobEncounter.remove(id); }
 
+    void playerLoggedIn(ServerPlayer player) {
+        fixedBreachAuthorized.loggedIn(player.getUUID(), player.serverLevel().dimensionType().natural(),
+                player.serverLevel().dimension().location());
+    }
+
+    void dimensionChanged(UUID player, ResourceLocation source, ResourceLocation destination) {
+        fixedBreachAuthorized.dimensionChanged(player, source, destination);
+    }
+
+    void playerLoggedOut(UUID player) { fixedBreachAuthorized.loggedOut(player); }
+
     boolean isParticipant(ServerPlayer player) {
         return player != null && participantEncounter.containsKey(player.getUUID())
                 && encounters.containsKey(participantEncounter.get(player.getUUID()));
@@ -209,8 +222,7 @@ final class DirectorRuntime {
         UUID encounterId = participantEncounter.get(player.getUUID());
         Encounter encounter = encounterId == null ? null : encounters.get(encounterId);
         double depth = depth(player);
-        EcologyRegistry.Blend blend = player.serverLevel().dimension() == Level.OVERWORLD
-                ? EcologyRegistry.INSTANCE.blend(player.serverLevel().getSeed(), player.position()) : null;
+        EcologyRegistry.Blend blend = ecologyFor(player);
         String locality = player.serverLevel().dimension().location() + "@" + player.blockPosition().toShortString();
         String target = "none";
         if (encounter != null && encounter.pursuitTarget != null) {
@@ -267,8 +279,14 @@ final class DirectorRuntime {
             double averageMaims = averageInjuryRelief(group, data);
 
             Vec3 center = center(group);
-            EcologyRegistry.Blend blend = level.dimension() == Level.OVERWORLD
-                    ? EcologyRegistry.INSTANCE.blend(level.getSeed(), center) : null;
+            ServerPlayer ecologyPlayer = group.get(0);
+            boolean fixedBreachEcology = FixedBreachEligibility.fixedBreachEcologyId(
+                    level.dimensionType().natural(), level.dimension().location(),
+                    fixedBreachAuthorized.contains(ecologyPlayer.getUUID())) != null;
+            EcologyRegistry.Blend blend = ecologyFor(level, center, ecologyPlayer);
+            // Fail closed if the optional datapack ecology is absent or invalid. A null
+            // blend otherwise means biome-native selection, which is not the fixed-breach roster.
+            if (fixedBreachEcology && blend == null) continue;
             for (ServerPlayer player : group) {
                 DirectorSavedData.Track track = data.track(player.getUUID());
                 double depth = depth(player);
@@ -306,6 +324,22 @@ final class DirectorRuntime {
         }
         List<ServerPlayer> pursuit = encounter.pursuitPlayers(server, this::eligible);
         if (!pursuit.isEmpty()) playWarning(pursuit.get(0).serverLevel(), pursuit, encounter);
+    }
+
+    private EcologyRegistry.Blend ecologyFor(ServerPlayer player) {
+        return ecologyFor(player.serverLevel(), player.position(), player);
+    }
+
+    private EcologyRegistry.Blend ecologyFor(ServerLevel level, Vec3 position, ServerPlayer player) {
+        ResourceLocation fixedEcology = FixedBreachEligibility.fixedBreachEcologyId(
+                level.dimensionType().natural(), level.dimension().location(),
+                fixedBreachAuthorized.contains(player.getUUID()));
+        if (fixedEcology != null) {
+            EcologyDefinition definition = EcologyRegistry.INSTANCE.definition(fixedEcology);
+            return definition == null ? null : new EcologyRegistry.Blend(definition, null, 0.0);
+        }
+        return level.dimension() == Level.OVERWORLD
+                ? EcologyRegistry.INSTANCE.blend(level.getSeed(), position) : null;
     }
 
     private void updateEncounters(MinecraftServer server, long now) {
@@ -658,7 +692,8 @@ final class DirectorRuntime {
     private boolean eligible(ServerPlayer player) {
         GameType mode = player.gameMode.getGameModeForPlayer();
         return player.isAlive() && !player.isSpectator() && (mode == GameType.SURVIVAL || mode == GameType.ADVENTURE)
-                && player.serverLevel().dimensionType().natural()
+                && FixedBreachEligibility.allows(player.serverLevel().dimensionType().natural(),
+                player.serverLevel().dimension().location(), fixedBreachAuthorized.contains(player.getUUID()))
                 && DepthMath.isControlled(player.blockPosition().getY(),
                 controlCeiling(player.serverLevel(), player.blockPosition()));
     }

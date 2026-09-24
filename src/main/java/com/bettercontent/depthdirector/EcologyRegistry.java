@@ -36,6 +36,8 @@ public final class EcologyRegistry extends SimpleJsonResourceReloadListener {
 
     public Map<ResourceLocation, EcologyDefinition> definitions() { return definitions; }
 
+    public EcologyDefinition definition(ResourceLocation id) { return definitions.get(id); }
+
     public Blend blend(long seed, Vec3 position) {
         List<Scored> scored = new ArrayList<>();
         definitions.values().forEach(definition -> scored.add(new Scored(definition,
