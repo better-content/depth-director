@@ -21,6 +21,8 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraftforge.common.MinecraftForge;
+import com.bettercontent.depthdirector.api.event.CavePressureStartedEvent;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -299,9 +301,12 @@ final class DirectorRuntime {
                         blend.primary().cadenceMaximumSeconds(), blend.secondary() == null
                                 ? blend.primary().cadenceMaximumSeconds() : blend.secondary().cadenceMaximumSeconds()));
                 double cadence = DirectorPolicy.cadenceSeconds(minimum, maximum, track.jitter());
-                track.pressure(DirectorPolicy.advancePressure(track.pressure(), depth, cadence,
+                double previousPressure = track.pressure();
+                track.pressure(DirectorPolicy.advancePressure(previousPressure, depth, cadence,
                         true, secured, distressed, averageMaims, now < track.recoveryUntil(),
                         false, DirectorConfig.SURFACE_DECAY_SECONDS.get()));
+                if (previousPressure <= 0.0 && track.pressure() > 0.0)
+                    MinecraftForge.EVENT_BUS.post(new CavePressureStartedEvent(player, now));
             }
             if (!secured && !distressed
                     && group.stream().anyMatch(player -> data.track(player.getUUID()).pressure() >= 1.0)) {
