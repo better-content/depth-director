@@ -188,15 +188,23 @@ final class SpawnLocator {
             EcologyDefinition ecology = blend.choose(random);
             EcologyDefinition.Entry entry = ecology.pick(random, depth, allowHeavy, entity -> {
                 EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(entity);
-                return type != null && type.getCategory() == MobCategory.MONSTER;
+                return type != null && ecology.roster().stream()
+                        .anyMatch(candidate -> candidate.entity().equals(entity)
+                                && authoredCategoryAllowed(type, candidate));
             }, candidate -> candidate.cost() <= maximumCost && selectable.test(candidate));
             if (entry == null) continue;
             EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(entry.entity());
-            if (type != null && type.getCategory() == MobCategory.MONSTER) {
+            if (type != null && authoredCategoryAllowed(type, entry)) {
                 return new Selection(type, entry.entity(), entry.cost(), entry.role());
             }
         }
         return null;
+    }
+
+    private static boolean authoredCategoryAllowed(EntityType<?> type, EcologyDefinition.Entry entry) {
+        return type.getCategory() == MobCategory.MONSTER
+                || (entry != null && entry.role() == EcologyDefinition.Role.HEAVY
+                    && type.getCategory() == MobCategory.CREATURE);
     }
 
     private static Selection nativeSelection(ServerLevel level, BlockPos position, RandomSource random) {
