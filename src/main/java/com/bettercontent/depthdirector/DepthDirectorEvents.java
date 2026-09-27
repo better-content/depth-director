@@ -20,12 +20,14 @@ public final class DepthDirectorEvents {
     @SubscribeEvent
     public static void addReloadListeners(AddReloadListenerEvent event) {
         event.addListener(EcologyRegistry.INSTANCE);
+        event.addListener(WaterwayRegistry.INSTANCE);
     }
 
     @SubscribeEvent
     public static void serverTick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.END && DirectorConfig.ENABLED.get()) {
             DirectorRuntime.INSTANCE.tick(event.getServer());
+            WaterwayDirector.INSTANCE.tick(event.getServer());
         }
     }
 

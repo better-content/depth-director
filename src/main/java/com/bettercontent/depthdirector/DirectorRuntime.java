@@ -190,6 +190,8 @@ final class DirectorRuntime {
 
     void removeMob(UUID id) { directorMobs.remove(id); mobEncounter.remove(id); }
 
+    int activeDirectorMobCount() { return directorMobs.size(); }
+
     void playerLoggedIn(ServerPlayer player) {
         fixedBreachAuthorized.loggedIn(player.getUUID(), player.serverLevel().dimensionType().natural(),
                 player.serverLevel().dimension().location());

@@ -56,6 +56,9 @@ public final class DirectorSavedData extends SavedData {
             track.jitter = entry.contains("Jitter") ? DepthMath.clamp(entry.getDouble("Jitter"), 0.0, 1.0) : 0.5;
             track.injuryRelief = Math.max(0.0, entry.getDouble("InjuryRelief"));
             track.lastObservedMaims = Math.max(0, entry.getInt("LastObservedMaims"));
+            track.aquaticProgress = Math.max(0, entry.getInt("AquaticProgress"));
+            track.aquaticCadence = Math.max(0, entry.getInt("AquaticCadence"));
+            track.aquaticRetryAt = Math.max(0L, entry.getLong("AquaticRetryAt"));
             data.tracks.put(entry.getUUID("Player"), track);
         }
         return data;
@@ -73,6 +76,9 @@ public final class DirectorSavedData extends SavedData {
             entry.putDouble("Jitter", track.jitter);
             entry.putDouble("InjuryRelief", track.injuryRelief);
             entry.putInt("LastObservedMaims", track.lastObservedMaims);
+            entry.putInt("AquaticProgress", track.aquaticProgress);
+            entry.putInt("AquaticCadence", track.aquaticCadence);
+            entry.putLong("AquaticRetryAt", track.aquaticRetryAt);
             list.add(entry);
         });
         root.put("Tracks", list);
@@ -87,12 +93,21 @@ public final class DirectorSavedData extends SavedData {
         private double jitter = 0.5;
         private double injuryRelief;
         private int lastObservedMaims;
+        private int aquaticProgress;
+        private int aquaticCadence;
+        private long aquaticRetryAt;
 
         public double pressure() { return pressure; }
         public long recoveryUntil() { return recoveryUntil; }
         public int probeFailures() { return probeFailures; }
         public double jitter() { return jitter; }
         public double injuryRelief() { return injuryRelief; }
+        public int aquaticProgress() { return aquaticProgress; }
+        public int aquaticCadence() { return aquaticCadence; }
+        public long aquaticRetryAt() { return aquaticRetryAt; }
+        public void aquaticProgress(int value) { aquaticProgress = Math.max(0, value); }
+        public void aquaticCadence(int value) { aquaticCadence = Math.max(0, value); }
+        public void aquaticRetryAt(long value) { aquaticRetryAt = Math.max(0L, value); }
         public void pressure(double value) { pressure = DepthMath.clamp(value, 0.0, 1.0); }
         public void recoveryUntil(long value) { recoveryUntil = value; }
         public void probeFailures(int value) { probeFailures = Math.max(0, value); }

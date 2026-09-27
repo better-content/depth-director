@@ -1,0 +1,11 @@
+{
+  "minimum_seconds": 240,
+  "maximum_seconds": 420,
+  "roster": [
+    { "entity": "thalassophobia:reaverfish", "weight": 5, "count": 2 },
+    { "entity": "thalassophobia:moray_eel", "weight": 4, "count": 2 },
+    { "entity": "thalassophobia:megapiranha", "weight": 3, "count": 2 },
+    { "entity": "thalassophobia:sea_snake", "weight": 2, "count": 1 },
+    { "entity": "minecraft:drowned", "weight": 3, "count": 3 }
+  ]
+}
