@@ -1,0 +1,98 @@
+package com.bettercontent.bettercaveencounters;
+
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Mob;
+import net.minecraftforge.event.AddReloadListenerEvent;
+import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+
+public final class DepthDirectorEvents {
+    private DepthDirectorEvents() {}
+
+    @SubscribeEvent
+    public static void addReloadListeners(AddReloadListenerEvent event) {
+        event.addListener(EcologyRegistry.INSTANCE);
+        event.addListener(WaterwayRegistry.INSTANCE);
+    }
+
+    @SubscribeEvent
+    public static void serverTick(TickEvent.ServerTickEvent event) {
+        if (event.phase == TickEvent.Phase.END && DirectorConfig.ENABLED.get()) {
+            DirectorRuntime.INSTANCE.tick(event.getServer());
+            WaterwayDirector.INSTANCE.tick(event.getServer());
+        }
+    }
+
+    @SubscribeEvent
+    public static void entityJoined(EntityJoinLevelEvent event) {
+        if (!event.getLevel().isClientSide() && event.getEntity() instanceof Mob mob) {
+            DirectorRuntime.INSTANCE.registerMob(mob);
+        }
+    }
+
+    @SubscribeEvent
+    public static void livingDied(LivingDeathEvent event) {
+        if (event.getEntity() instanceof Mob mob) DirectorRuntime.INSTANCE.removeMob(mob.getUUID());
+        if (event.getEntity() instanceof ServerPlayer player) {
+            DirectorRuntime.INSTANCE.playerDied(player.server, player.getUUID());
+        }
+    }
+
+    @SubscribeEvent
+    public static void playerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            DirectorRuntime.INSTANCE.playerLoggedIn(player);
+        }
+    }
+
+    @SubscribeEvent
+    public static void playerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            DirectorRuntime.INSTANCE.dimensionChanged(player.getUUID(), event.getFrom().location(),
+                    player.serverLevel().dimension().location());
+        }
+    }
+
+    @SubscribeEvent
+    public static void playerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            DirectorRuntime.INSTANCE.playerLoggedOut(player.getUUID());
+        }
+    }
+
+    @SubscribeEvent
+    public static void serverStopped(ServerStoppedEvent event) {
+        DirectorRuntime.INSTANCE.persist(event.getServer());
+        DirectorRuntime.INSTANCE.reset();
+    }
+
+    @SubscribeEvent
+    public static void registerCommands(RegisterCommandsEvent event) {
+        event.getDispatcher().register(Commands.literal("depthdirector").requires(source -> source.hasPermission(2))
+                .then(Commands.literal("inspect").executes(context -> {
+                    ServerPlayer player = context.getSource().getPlayerOrException();
+                    if (!DirectorRuntime.INSTANCE.isParticipant(player)) {
+                        context.getSource().sendFailure(Component.literal("player is not an active encounter participant"));
+                        return 0;
+                    }
+                    context.getSource().sendSuccess(() -> Component.literal(DirectorRuntime.INSTANCE.inspect(player)), false);
+                    return 1;
+                }).then(Commands.argument("player", EntityArgument.player()).executes(context -> {
+                    ServerPlayer player = EntityArgument.getPlayer(context, "player");
+                    if (!DirectorRuntime.INSTANCE.isParticipant(player)) {
+                        context.getSource().sendFailure(Component.literal("player is not an active encounter participant"));
+                        return 0;
+                    }
+                    context.getSource().sendSuccess(() -> Component.literal(DirectorRuntime.INSTANCE.inspect(player)), false);
+                    return 1;
+                }))));
+    }
+}

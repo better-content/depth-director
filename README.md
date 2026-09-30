@@ -1,4 +1,4 @@
-# Depth Director
+# Better Cave Encounters
 
 Operators with permission level 2 may use `/depthdirector inspect <online player>`
 to read that player's encounter identity and family, phase, pursuit target and

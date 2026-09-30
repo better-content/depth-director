@@ -2,10 +2,10 @@
 
 ## Scope
 
-This repository contains the Better Content-owned Forge mod **Depth Director**.
+This repository contains the Better Content-owned Forge mod **Better Cave Encounters**.
 
-- Canonical mod ID: `depth_director`
-- Canonical artifact: `depth-director-<version>.jar`
+- Canonical mod ID: `better_cave_encounters`
+- Canonical artifact: `better-cave-encounters-<version>.jar`
 - Maven group: `com.bettercontent`
 - Java runtime: 17
 - Minecraft/Forge baseline: 1.20.1 / 47.4.13

@@ -14,4 +14,4 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "depth-director"
+rootProject.name = "better-cave-encounters"

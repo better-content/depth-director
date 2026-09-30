@@ -3,26 +3,26 @@ loaderVersion="[47,)"
 license="All Rights Reserved"
 
 [[mods]]
-modId="depth_director_world_tests"
+modId="better_cave_encounters_world_tests"
 version="1"
-displayName="Depth Director World Tests"
-description='''Manual real-catalogue qualification tests for Depth Director.'''
+displayName="Better Cave Encounters World Tests"
+description='''Manual real-catalogue qualification tests for Better Cave Encounters.'''
 
-[[dependencies.depth_director_world_tests]]
-modId="depth_director"
+[[dependencies.better_cave_encounters_world_tests]]
+modId="better_cave_encounters"
 mandatory=true
 versionRange="[0.2.0,)"
 ordering="AFTER"
 side="SERVER"
 
-[[dependencies.depth_director_world_tests]]
+[[dependencies.better_cave_encounters_world_tests]]
 modId="forge"
 mandatory=true
 versionRange="[47,)"
 ordering="NONE"
 side="SERVER"
 
-[[dependencies.depth_director_world_tests]]
+[[dependencies.better_cave_encounters_world_tests]]
 modId="minecraft"
 mandatory=true
 versionRange="[1.20.1,1.20.2)"

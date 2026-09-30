@@ -46,12 +46,12 @@ minecraft {
             workingDirectory(project.file("run-world-gametest"))
             property("forge.enableGameTest", "true")
             property("forge.gameTestServer", "true")
-            property("forge.enabledGameTestNamespaces", "depth_director_world_tests")
+            property("forge.enabledGameTestNamespaces", "better_cave_encounters_world_tests")
             property("mixin.env.remapRefMap", "true")
             property("mixin.env.refMapRemappingFile", file("build/createSrgToMcp/output.srg").absolutePath)
             arg("--nogui")
             mods {
-                create("depth_director_world_tests") { source(worldGameTest) }
+                create("better_cave_encounters_world_tests") { source(worldGameTest) }
             }
         }
     }
@@ -87,14 +87,14 @@ repositories {
     }
     ivy {
         name = "downedPlayerRevivalLocal"
-        url = uri(betterContentJar("downed-player-revival", "downed-player-revival-1.0.0.jar").parentFile)
+        url = uri(betterContentJar("better-deaths-door", "better-deaths-door-1.0.0.jar").parentFile)
         patternLayout { artifact("[artifact]-[revision].[ext]") }
         metadataSources { artifact() }
         content { includeGroup("bettercontent.local") }
     }
     ivy {
         name = "betterContentFixesLocal"
-        url = uri(betterContentJar("better-content-fixes", "better-content-fixes-0.1.9.jar").parentFile)
+        url = uri(betterContentJar("better-compat-fixes", "better-compat-fixes-0.1.9.jar").parentFile)
         patternLayout { artifact("[artifact]-[revision].[ext]") }
         metadataSources { artifact() }
         content { includeGroup("bettercontent.local") }
@@ -105,14 +105,14 @@ repositories {
 dependencies {
     minecraft("net.minecraftforge:forge:${property("minecraft_version")}-${property("forge_version")}")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
-    compileOnly(fg.deobf("bettercontent.local:downed-player-revival:1.0.0"))
-    compileOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.9"))
+    compileOnly(fg.deobf("bettercontent.local:better-deaths-door:1.0.0"))
+    compileOnly(fg.deobf("bettercontent.local:better-compat-fixes:0.1.9"))
     // GameTestServer and local dev runs need the declared hard dependencies at runtime.
-    runtimeOnly(fg.deobf("bettercontent.local:downed-player-revival:1.0.0"))
-    runtimeOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.9"))
+    runtimeOnly(fg.deobf("bettercontent.local:better-deaths-door:1.0.0"))
+    runtimeOnly(fg.deobf("bettercontent.local:better-compat-fixes:0.1.9"))
     runtimeOnly("io.github.llamalad7:mixinextras-forge:0.5.4")
-    testCompileOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.9"))
-    testRuntimeOnly(fg.deobf("bettercontent.local:better-content-fixes:0.1.9"))
+    testCompileOnly(fg.deobf("bettercontent.local:better-compat-fixes:0.1.9"))
+    testRuntimeOnly(fg.deobf("bettercontent.local:better-compat-fixes:0.1.9"))
 
     add("worldGameTestRuntimeOnly", fg.deobf("curse.maven:born-in-chaos-686437:7917933"))
     add("worldGameTestRuntimeOnly", fg.deobf("curse.maven:goety-586095:8087429"))
@@ -129,7 +129,7 @@ dependencies {
             "com.teamresourceful.resourcefulconfig:resourcefulconfig-forge-1.20.1:2.1.3"))
     add("worldGameTestRuntimeOnly", fg.deobf(
             "worldtest.enderman:endermanoverhaul-forge-1.20.1-1.0.4:yjxych8u@jar"))
-    add("worldGameTestRuntimeOnly", fg.deobf("bettercontent.local:downed-player-revival:1.0.0"))
+    add("worldGameTestRuntimeOnly", fg.deobf("bettercontent.local:better-deaths-door:1.0.0"))
 }
 
 tasks.processResources {

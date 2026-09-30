@@ -1,13 +1,13 @@
 modLoader="javafml"
 loaderVersion="[47,)"
 license="AGPL-3.0-or-later"
-issueTrackerURL="https://github.com/better-content/depth-director/issues"
+issueTrackerURL="https://github.com/better-content/better-cave-encounters/issues"
 
 [[mods]]
 modId="${mod_id}"
 version="${mod_version}"
 displayName="${mod_name}"
-displayURL="https://github.com/better-content/depth-director"
+displayURL="https://github.com/better-content/better-cave-encounters"
 authors="Gerald"
 description='''Player-centric, depth-scaled underground encounter direction.'''
 
@@ -26,14 +26,14 @@ ordering="NONE"
 side="BOTH"
 
 [[dependencies.${mod_id}]]
-modId="downed_player_revival"
+modId="better_deaths_door"
 mandatory=false
 versionRange="[1.0.0,)"
 ordering="AFTER"
 side="BOTH"
 
 [[dependencies.${mod_id}]]
-modId="better_content_fixes"
+modId="better_compat_fixes"
 mandatory=true
 versionRange="[0.1.8,)"
 ordering="AFTER"
