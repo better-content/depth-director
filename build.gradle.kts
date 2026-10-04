@@ -99,6 +99,13 @@ repositories {
         metadataSources { artifact() }
         content { includeGroup("bettercontent.local") }
     }
+    ivy {
+        name = "betterGameplayNoticesLocal"
+        url = uri(betterContentJar("better-gameplay-notices", "better-gameplay-notices-1.0.0.jar").parentFile)
+        patternLayout { artifact("[artifact]-[revision].[ext]") }
+        metadataSources { artifact() }
+        content { includeGroup("bettercontent.notices.local") }
+    }
     mavenCentral()
 }
 
@@ -110,6 +117,7 @@ dependencies {
     // GameTestServer and local dev runs need the declared hard dependencies at runtime.
     runtimeOnly(fg.deobf("bettercontent.local:better-deaths-door:1.0.0"))
     runtimeOnly(fg.deobf("bettercontent.local:better-compat-fixes:0.1.9"))
+    runtimeOnly(fg.deobf("bettercontent.notices.local:better-gameplay-notices:1.0.0"))
     runtimeOnly("io.github.llamalad7:mixinextras-forge:0.5.4")
     testCompileOnly(fg.deobf("bettercontent.local:better-compat-fixes:0.1.9"))
     testRuntimeOnly(fg.deobf("bettercontent.local:better-compat-fixes:0.1.9"))

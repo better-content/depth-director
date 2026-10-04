@@ -11,6 +11,7 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
@@ -69,8 +70,12 @@ public final class DepthDirectorEvents {
     }
 
     @SubscribeEvent
-    public static void serverStopped(ServerStoppedEvent event) {
+    public static void serverStopping(ServerStoppingEvent event) {
         DirectorRuntime.INSTANCE.persist(event.getServer());
+    }
+
+    @SubscribeEvent
+    public static void serverStopped(ServerStoppedEvent event) {
         DirectorRuntime.INSTANCE.reset();
     }
 

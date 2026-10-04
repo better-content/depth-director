@@ -87,6 +87,9 @@ final class DirectorRuntime {
     }
 
     void persist(MinecraftServer server) {
+        // Startup can fail before the Overworld exists or before saved encounters are restored.
+        // In either case, writing an empty snapshot would be unsafe.
+        if (!restored || server.overworld() == null) return;
         CompoundTag root = new CompoundTag();
         ListTag list = new ListTag();
         encounters.values().forEach(e -> {
